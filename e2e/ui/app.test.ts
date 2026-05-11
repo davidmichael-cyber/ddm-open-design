@@ -1125,6 +1125,270 @@ test('reloading an older conversation route restores its staged chat attachments
   await expect(page.getByTestId('staged-attachments')).toContainText('reload-staged-attachment.txt');
 });
 
+test('reloading the project keeps the latest conversation selected in history', async ({ page }) => {
+  await page.route('**/api/agents', async (route) => {
+    await route.fulfill({
+      json: {
+        agents: [
+          {
+            id: 'mock',
+            name: 'Mock Agent',
+            bin: 'mock-agent',
+            available: true,
+            version: 'test',
+            models: [{ id: 'default', label: 'Default' }],
+          },
+        ],
+      },
+    });
+  });
+
+  await page.route('**/api/runs', async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: '{"runId":"conversation-history-reload-run"}',
+    });
+  });
+
+  await page.route('**/api/runs/*/events', async (route) => {
+    const body = [
+      'event: start',
+      'data: {"bin":"mock-agent"}',
+      '',
+      'event: end',
+      'data: {"code":0,"status":"succeeded"}',
+      '',
+      '',
+    ].join('\n');
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+      },
+      body,
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('new-project-name').fill('Conversation history reload selection');
+  await page.getByTestId('create-project').click();
+  await expectWorkspaceReady(page);
+
+  const firstPrompt = 'History selection first conversation';
+  const secondPrompt = 'History selection second conversation';
+
+  await sendPrompt(page, firstPrompt);
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: firstPrompt }).first()).toBeVisible();
+
+  await page.getByTestId('new-conversation').click();
+  await expect(page.getByText('Start a conversation')).toBeVisible();
+  await sendPrompt(page, secondPrompt);
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: secondPrompt }).first()).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByTestId('chat-composer')).toBeVisible();
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: secondPrompt }).first()).toBeVisible();
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: firstPrompt })).toHaveCount(0);
+
+  await page.getByTestId('conversation-history-trigger').click();
+  const historyList = page.getByTestId('conversation-list');
+  await expect(historyList).toBeVisible();
+  const activeRow = historyList.locator('.chat-conv-item.active').first();
+  await expect(activeRow).toContainText(secondPrompt);
+  await expect(historyList.locator('.chat-conv-item')).toHaveCount(2);
+});
+
+test('deleting the active conversation selects the remaining conversation in history', async ({ page }) => {
+  page.on('dialog', async (dialog: Dialog) => {
+    await dialog.accept();
+  });
+
+  await page.route('**/api/agents', async (route) => {
+    await route.fulfill({
+      json: {
+        agents: [
+          {
+            id: 'mock',
+            name: 'Mock Agent',
+            bin: 'mock-agent',
+            available: true,
+            version: 'test',
+            models: [{ id: 'default', label: 'Default' }],
+          },
+        ],
+      },
+    });
+  });
+
+  await page.route('**/api/runs', async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: '{"runId":"conversation-history-delete-run"}',
+    });
+  });
+
+  await page.route('**/api/runs/*/events', async (route) => {
+    const body = [
+      'event: start',
+      'data: {"bin":"mock-agent"}',
+      '',
+      'event: end',
+      'data: {"code":0,"status":"succeeded"}',
+      '',
+      '',
+    ].join('\n');
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+      },
+      body,
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('new-project-name').fill('Conversation history delete selection');
+  await page.getByTestId('create-project').click();
+  await expectWorkspaceReady(page);
+
+  const firstPrompt = 'Delete selection first conversation';
+  const secondPrompt = 'Delete selection second conversation';
+
+  await sendPrompt(page, firstPrompt);
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: firstPrompt }).first()).toBeVisible();
+
+  await page.getByTestId('new-conversation').click();
+  await expect(page.getByText('Start a conversation')).toBeVisible();
+  await sendPrompt(page, secondPrompt);
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: secondPrompt }).first()).toBeVisible();
+
+  await page.getByTestId('conversation-history-trigger').click();
+  const historyList = page.getByTestId('conversation-list');
+  await expect(historyList).toBeVisible();
+  const activeRow = historyList.locator('.chat-conv-item.active').first();
+  await expect(activeRow).toContainText(secondPrompt);
+  await activeRow.getByTestId(/conversation-delete-/).click();
+
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: firstPrompt }).first()).toBeVisible();
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: secondPrompt })).toHaveCount(0);
+
+  await page.getByTestId('conversation-history-trigger').click();
+  await expect(historyList).toBeVisible();
+  await expect(historyList.locator('.chat-conv-item')).toHaveCount(1);
+  await expect(historyList.locator('.chat-conv-item.active').first()).toContainText(firstPrompt);
+});
+
+test('returning from workspace surfaces keeps the history selection on the chosen older conversation', async ({ page }) => {
+  await page.route('**/api/agents', async (route) => {
+    await route.fulfill({
+      json: {
+        agents: [
+          {
+            id: 'mock',
+            name: 'Mock Agent',
+            bin: 'mock-agent',
+            available: true,
+            version: 'test',
+            models: [{ id: 'default', label: 'Default' }],
+          },
+        ],
+      },
+    });
+  });
+
+  await page.route('**/api/runs', async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: '{"runId":"conversation-history-surface-run"}',
+    });
+  });
+
+  await page.route('**/api/runs/*/events', async (route) => {
+    const body = [
+      'event: start',
+      'data: {"bin":"mock-agent"}',
+      '',
+      'event: end',
+      'data: {"code":0,"status":"succeeded"}',
+      '',
+      '',
+    ].join('\n');
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+      },
+      body,
+    });
+  });
+
+  await page.goto('/');
+  await page.getByTestId('new-project-name').fill('Conversation history surface restore');
+  await page.getByTestId('create-project').click();
+  await expectWorkspaceReady(page);
+
+  const firstPrompt = 'Surface restore first conversation';
+  const secondPrompt = 'Surface restore second conversation';
+
+  await sendPrompt(page, firstPrompt);
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: firstPrompt }).first()).toBeVisible();
+
+  await page.getByTestId('new-conversation').click();
+  await expect(page.getByText('Start a conversation')).toBeVisible();
+  await sendPrompt(page, secondPrompt);
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: secondPrompt }).first()).toBeVisible();
+
+  await page.getByTestId('design-files-upload-input').setInputFiles({
+    name: 'surface-restore.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5W6McAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await expect(page.getByRole('tab', { name: /surface-restore\.png/i })).toBeVisible();
+
+  await page.getByTestId('conversation-history-trigger').click();
+  const historyList = page.getByTestId('conversation-list');
+  await expect(historyList).toBeVisible();
+  await historyList
+    .locator('.chat-conv-item')
+    .filter({ hasText: firstPrompt })
+    .first()
+    .locator('[data-testid^="conversation-select-"]')
+    .click();
+
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: firstPrompt }).first()).toBeVisible();
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: secondPrompt })).toHaveCount(0);
+
+  await page.getByTestId('design-files-tab').click();
+  await expect(page.getByTestId('design-files-tab')).toHaveAttribute('aria-selected', 'true');
+
+  const current = new URL(page.url());
+  const [, projects, projectId] = current.pathname.split('/');
+  if (projects !== 'projects' || !projectId) {
+    throw new Error(`unexpected project route: ${current.pathname}`);
+  }
+  await page.goto(`/projects/${projectId}`);
+
+  await expect(page.getByTestId('chat-composer')).toBeVisible();
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: firstPrompt }).first()).toBeVisible();
+  await expect(page.locator('.msg.user .user-text').filter({ hasText: secondPrompt })).toHaveCount(0);
+
+  await page.getByTestId('conversation-history-trigger').click();
+  await expect(historyList).toBeVisible();
+  await expect(historyList.locator('.chat-conv-item.active').first()).toContainText(firstPrompt);
+});
+
 test('a later completed run updates the workspace to the newest artifact tab and preview', async ({ page }) => {
   await page.route('**/api/agents', async (route) => {
     await route.fulfill({

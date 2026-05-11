@@ -20,6 +20,7 @@ const fetchChatRunStatus = vi.fn();
 const listActiveChatRuns = vi.fn();
 const reattachDaemonRun = vi.fn();
 const streamViaDaemon = vi.fn();
+const streamMessage = vi.fn();
 const saveMessage = vi.fn();
 const createConversation = vi.fn();
 const patchConversation = vi.fn();
@@ -33,7 +34,7 @@ vi.mock('../../src/i18n', () => ({
 }));
 
 vi.mock('../../src/providers/anthropic', () => ({
-  streamMessage: vi.fn(),
+  streamMessage: (...args: unknown[]) => streamMessage(...args),
 }));
 
 vi.mock('../../src/providers/daemon', () => ({
@@ -242,6 +243,7 @@ describe('ProjectView conversation run isolation', () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
@@ -340,14 +342,46 @@ describe('ProjectView conversation run isolation', () => {
     await waitFor(() => expect(screen.getByTestId('chat-error').textContent).toBe(''));
     expect(screen.getByTestId('send-message')).toHaveProperty('disabled', false);
   });
+
+  it('notifies when an API-mode chat completes without a daemon run status transition', async () => {
+    listMessages.mockResolvedValue([]);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
+    streamMessage.mockImplementation(
+      async (
+        _config: unknown,
+        _systemPrompt: unknown,
+        _history: unknown,
+        _signal: unknown,
+        handlers: { onDelta: (delta: string) => void; onDone: () => void },
+      ) => {
+        handlers.onDelta('api response');
+        handlers.onDone();
+      },
+    );
+
+    renderProjectView({
+      ...config,
+      mode: 'api',
+      apiKey: 'test-key',
+      model: 'api-model',
+    });
+
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-a'));
+    await waitFor(() => expect(screen.getByTestId('send-message')).toHaveProperty('disabled', false));
+
+    fireEvent.click(screen.getByTestId('send-message'));
+
+    await waitFor(() => expect(streamMessage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(playSound).toHaveBeenCalledWith('success-sound'));
+  });
 });
 
-function renderProjectView() {
+function renderProjectView(renderConfig = config) {
   return render(
     <ProjectView
       project={project}
       routeFileName={null}
-      config={config}
+      config={renderConfig}
       agents={[{ id: 'agent-1', name: 'OpenCode', bin: 'opencode', available: true, models: [] }]}
       skills={[]}
       designTemplates={[]}

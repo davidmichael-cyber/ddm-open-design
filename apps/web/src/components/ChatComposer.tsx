@@ -672,6 +672,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
 
     async function submit() {
       const prompt = draft.trim();
+      if (sendDisabled) return;
       // Intercept `/pet …` and `/mcp` before sending so the slash command
       // never hits the agent — these are local UX hooks, not model prompts.
       if (tryHandlePetSlash()) return;
@@ -684,14 +685,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
       const skillMeta = skillIds.length > 0 ? { skillIds } : undefined;
       const hatched = expandHatchCommand(prompt);
       if (hatched) {
-        if (streaming || sendDisabled) return;
+        if (streaming) return;
         onSend(hatched, staged, commentAttachments, skillMeta);
         reset();
         return;
       }
       const search = researchAvailable ? expandSearchCommand(prompt) : null;
       if (search) {
-        if (streaming || sendDisabled) return;
+        if (streaming) return;
         onSend(search.prompt, staged, commentAttachments, {
           ...skillMeta,
           research: { enabled: true, query: search.query },
@@ -699,7 +700,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
         reset();
         return;
       }
-      if ((!prompt && commentAttachments.length === 0) || streaming || sendDisabled) return;
+      if ((!prompt && commentAttachments.length === 0) || streaming) return;
       onSend(prompt, staged, commentAttachments, skillMeta);
       reset();
     }

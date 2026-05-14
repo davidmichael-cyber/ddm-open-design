@@ -59,9 +59,6 @@ import {
   listExtractions as listMemoryExtractions,
   removeExtraction as removeMemoryExtraction,
 } from './memory-extractions.js';
-import { attachAcpSession } from './acp.js';
-import { attachPiRpcSession } from './pi-rpc.js';
-import { createClaudeStreamHandler } from './claude-stream.js';
 import { diagnoseClaudeCliFailure } from './claude-diagnostics.js';
 import { loadCritiqueConfigFromEnv } from './critique/config.js';
 import { reconcileStaleRuns } from './critique/persistence.js';
@@ -69,9 +66,7 @@ import { runOrchestrator } from './critique/orchestrator.js';
 import { createRunRegistry } from './critique/run-registry.js';
 import { handleCritiqueInterrupt } from './critique/interrupt-handler.js';
 import { handleCritiqueArtifact } from './critique/artifact-handler.js';
-import { createCopilotStreamHandler } from './copilot-stream.js';
-import { createJsonEventStreamHandler } from './json-event-stream.js';
-import { createQoderStreamHandler } from './qoder-stream.js';
+import { createRuntimeAdapter } from './runtimes/runtime-adapter.js';
 import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
@@ -1162,11 +1157,6 @@ const promptFileBootstrap = (fp) =>
 // surfaces immediately as a boot-time RangeError instead of silently at
 // run time. Default: enabled=false (M0 dark launch).
 const critiqueCfg = loadCritiqueConfigFromEnv();
-// Tracks adapter streamFormat values that have already received a one-time
-// warning explaining why the Critique Theater orchestrator was bypassed.
-// Adapter denylist for orchestrator routing is implicit: anything that is
-// not the 'plain' streamFormat falls through to legacy single-pass.
-const critiqueWarnedAdapters = new Set<string>();
 
 // In-process registry of in-flight critique runs so the interrupt endpoint
 // can cascade an AbortController to the matching orchestrator invocation.
@@ -2928,6 +2918,7 @@ export async function startServer({
     projectId,
     skillId,
     designSystemId,
+    supportsCritiqueTheater,
     streamFormat,
     connectedExternalMcp,
   }) => {
@@ -3090,12 +3081,11 @@ export async function startServer({
       metadata?.kind === 'image' ||
       metadata?.kind === 'video' ||
       metadata?.kind === 'audio';
-    const isPlainAdapter = (streamFormat ?? 'plain') === 'plain';
     const critiqueShouldRun = critiqueCfg.enabled
       && critiqueBrand !== undefined
       && critiqueSkill !== undefined
       && !isMediaSurface
-      && isPlainAdapter;
+      && supportsCritiqueTheater;
     // Only thread the critique fields when the run is actually eligible;
     // otherwise the composer's own internal eligibility check (cfg.enabled
     // && brand && skill && !isMediaSurface) might still fire on
@@ -3187,6 +3177,7 @@ export async function startServer({
       );
     if (!def.bin)
       return design.runs.fail(run, 'AGENT_UNAVAILABLE', 'agent has no binary');
+    const runtimeAdapter = createRuntimeAdapter(def);
     const safeCommentAttachments =
       normalizeCommentAttachments(commentAttachments);
     if (
@@ -3386,6 +3377,7 @@ export async function startServer({
         projectId,
         skillId,
         designSystemId,
+        supportsCritiqueTheater: runtimeAdapter.supportsCritiqueTheater(),
         streamFormat: def?.streamFormat ?? 'plain',
         connectedExternalMcp,
       });
@@ -3580,7 +3572,7 @@ export async function startServer({
         }
       }
     }
-    if (enabledExternalMcp.length > 0 && def.streamFormat === 'acp-json-rpc') {
+    if (enabledExternalMcp.length > 0 && runtimeAdapter.acceptsExternalMcpServers()) {
       const acpExternal = buildAcpMcpServers(enabledExternalMcp);
       mcpServers.push(...acpExternal);
     }
@@ -3790,7 +3782,6 @@ export async function startServer({
       runId,
       agentId,
       bin: resolvedBin,
-      streamFormat: def.streamFormat ?? 'plain',
       projectId: typeof projectId === 'string' ? projectId : null,
       cwd,
       model: safeModel,
@@ -3808,10 +3799,7 @@ export async function startServer({
     try {
       // Prompt delivery via stdin is now the universal default. This bypasses
       // both the cmd.exe 8KB limit and the CreateProcess 32KB limit.
-      const stdinMode =
-        def.promptViaStdin || def.streamFormat === 'acp-json-rpc'
-          ? 'pipe'
-          : 'ignore';
+      const stdinMode = runtimeAdapter.stdinMode();
       const env = applyAgentLaunchEnv({
         ...spawnEnvForAgent(
           def.id,
@@ -3840,7 +3828,7 @@ export async function startServer({
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       });
       run.child = child;
-      if (def.promptViaStdin && child.stdin && def.streamFormat !== 'pi-rpc') {
+      if (runtimeAdapter.shouldWritePromptToStdin() && child.stdin) {
         // EPIPE from a fast-exiting CLI (bad auth, missing model, exit on
         // launch) would otherwise surface as an unhandled stream error and
         // crash the daemon. Swallow it — the regular exit/close handlers
@@ -3936,243 +3924,125 @@ export async function startServer({
     // and fall through to legacy generation; otherwise the parser waits for
     // <CRITIQUE_RUN> tags the model was never told to emit.
     if (critiqueShouldRun) {
-      const adapterStreamFormat: string = def.streamFormat ?? 'plain';
-      if (adapterStreamFormat !== 'plain') {
-        if (!critiqueWarnedAdapters.has(adapterStreamFormat)) {
-          critiqueWarnedAdapters.add(adapterStreamFormat);
-          console.warn(`[critique] adapter format=${adapterStreamFormat} is not plain-stream; skipping orchestrator and falling through to legacy generation`);
-        }
-      } else {
-        const critiqueRunId = run.id;
-        // Per-run artifact directory keeps concurrent or sequential runs in the
-        // same project from overwriting each other's transcript or final HTML.
-        // Spec: artifacts/<projectId>/<runId>/transcript.ndjson(.gz).
-        const critiqueProjectKey = typeof projectId === 'string' && projectId ? projectId : critiqueRunId;
-        const critiqueArtifactDir = path.join(ARTIFACTS_DIR, critiqueProjectKey, critiqueRunId);
-        const stdoutIterable = (async function* () {
-          for await (const chunk of child.stdout) yield String(chunk);
-        })();
-        // Forward each CritiqueSseEvent on its own contract-defined channel
-        // (critique.run_started, critique.ship, critique.failed, ...) rather
-        // than wrapping the frame inside the legacy 'agent' channel. Clients
-        // that subscribe to the new event names see them directly with the
-        // contract payload as event.data.
-        const critiqueBus = { emit: (e) => send(e.event, e.data) };
+      const critiqueRunId = run.id;
+      // Per-run artifact directory keeps concurrent or sequential runs in the
+      // same project from overwriting each other's transcript or final HTML.
+      // Spec: artifacts/<projectId>/<runId>/transcript.ndjson(.gz).
+      const critiqueProjectKey = typeof projectId === 'string' && projectId ? projectId : critiqueRunId;
+      const critiqueArtifactDir = path.join(ARTIFACTS_DIR, critiqueProjectKey, critiqueRunId);
+      const stdoutIterable = (async function* () {
+        for await (const chunk of child.stdout) yield String(chunk);
+      })();
+      // Forward each CritiqueSseEvent on its own contract-defined channel
+      // (critique.run_started, critique.ship, critique.failed, ...) rather
+      // than wrapping the frame inside the legacy 'agent' channel. Clients
+      // that subscribe to the new event names see them directly with the
+      // contract payload as event.data.
+      const critiqueBus = { emit: (e) => send(e.event, e.data) };
 
-        // Register this run with the in-process registry so the interrupt
-        // endpoint can cascade an AbortController to the orchestrator. The
-        // register call must run BEFORE runOrchestrator is invoked, so a
-        // request that arrives between spawn and orchestrator-start cannot
-        // miss a runId that already has a live child process.
-        const critiqueAbort = new AbortController();
-        critiqueRunRegistry.register({
+      // Register this run with the in-process registry so the interrupt
+      // endpoint can cascade an AbortController to the orchestrator. The
+      // register call must run BEFORE runOrchestrator is invoked, so a
+      // request that arrives between spawn and orchestrator-start cannot
+      // miss a runId that already has a live child process.
+      const critiqueAbort = new AbortController();
+      critiqueRunRegistry.register({
+        runId: critiqueRunId,
+        projectId: critiqueProjectKey,
+        abort: critiqueAbort,
+        startedAt: Date.now(),
+      });
+
+      // Stderr forwarding and child.on('error') must be wired BEFORE the
+      // orchestrator awaits stdout. Otherwise a CLI that floods stderr can
+      // fill the OS pipe and deadlock the run until the total timeout, and
+      // an early child error fired before the orchestrator returns has no
+      // listener. Both registrations are idempotent and the run lifecycle
+      // is owned solely by the orchestrator's awaited result below.
+      child.stderr.on('data', (chunk) => {
+        noteAgentActivity();
+        send('stderr', { chunk });
+      });
+      child.on('error', (err) => {
+        send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', err.message));
+      });
+
+      // Wrap the child's close event so the orchestrator can race child
+      // exit against parser completion, abort, and timeouts in one awaited
+      // flow. Without this the orchestrator can't tell a non-zero exit
+      // apart from a clean ship and may misclassify failures.
+      const childExitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+        child.once('close', (code, signal) => resolve({ code, signal }));
+      });
+      try {
+        const orchestratorResult = await runOrchestrator({
           runId: critiqueRunId,
-          projectId: critiqueProjectKey,
-          abort: critiqueAbort,
-          startedAt: Date.now(),
+          projectId: typeof projectId === 'string' ? projectId : '',
+          conversationId: typeof conversationId === 'string' ? conversationId : null,
+          artifactId: critiqueRunId,
+          artifactDir: critiqueArtifactDir,
+          adapter: typeof agentId === 'string' ? agentId : 'unknown',
+          cfg: critiqueCfg,
+          db,
+          bus: critiqueBus,
+          stdout: stdoutIterable,
+          child,
+          childExitPromise,
+          signal: critiqueAbort.signal,
         });
-
-        // Stderr forwarding and child.on('error') must be wired BEFORE the
-        // orchestrator awaits stdout. Otherwise a CLI that floods stderr can
-        // fill the OS pipe and deadlock the run until the total timeout, and
-        // an early child error fired before the orchestrator returns has no
-        // listener. Both registrations are idempotent and the run lifecycle
-        // is owned solely by the orchestrator's awaited result below.
-        child.stderr.on('data', (chunk) => {
-          noteAgentActivity();
-          send('stderr', { chunk });
-        });
-        child.on('error', (err) => {
-          send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', err.message));
-        });
-
-        // Wrap the child's close event so the orchestrator can race child
-        // exit against parser completion, abort, and timeouts in one awaited
-        // flow. Without this the orchestrator can't tell a non-zero exit
-        // apart from a clean ship and may misclassify failures.
-        const childExitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-          child.once('close', (code, signal) => resolve({ code, signal }));
-        });
-        try {
-          const orchestratorResult = await runOrchestrator({
-            runId: critiqueRunId,
-            projectId: typeof projectId === 'string' ? projectId : '',
-            conversationId: typeof conversationId === 'string' ? conversationId : null,
-            artifactId: critiqueRunId,
-            artifactDir: critiqueArtifactDir,
-            adapter: typeof agentId === 'string' ? agentId : 'unknown',
-            cfg: critiqueCfg,
-            db,
-            bus: critiqueBus,
-            stdout: stdoutIterable,
-            child,
-            childExitPromise,
-            signal: critiqueAbort.signal,
-          });
-          // Map the critique terminal status to the chat run lifecycle.
-          // 'shipped' and 'below_threshold' both ran to a ship decision and
-          // finalize as 'succeeded'; every other status (timed_out,
-          // interrupted, degraded, failed, legacy) is a failure path so the
-          // run reflects the real outcome instead of a misleading success.
-          const succeeded = orchestratorResult.status === 'shipped'
-            || orchestratorResult.status === 'below_threshold';
-          if (run.cancelRequested) {
-            design.runs.finish(run, 'canceled', 1, null);
-          } else if (succeeded) {
-            design.runs.finish(run, 'succeeded', 0, null);
-          } else {
-            design.runs.finish(run, 'failed', 1, null);
-          }
-        } catch (err) {
-          send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', err instanceof Error ? err.message : String(err)));
+        // Map the critique terminal status to the chat run lifecycle.
+        // 'shipped' and 'below_threshold' both ran to a ship decision and
+        // finalize as 'succeeded'; every other status (timed_out,
+        // interrupted, degraded, failed, legacy) is a failure path so the
+        // run reflects the real outcome instead of a misleading success.
+        const succeeded = orchestratorResult.status === 'shipped'
+          || orchestratorResult.status === 'below_threshold';
+        if (run.cancelRequested) {
+          design.runs.finish(run, 'canceled', 1, null);
+        } else if (succeeded) {
+          design.runs.finish(run, 'succeeded', 0, null);
+        } else {
           design.runs.finish(run, 'failed', 1, null);
-        } finally {
-          critiqueRunRegistry.unregister(critiqueProjectKey, critiqueRunId);
         }
-        return;
+      } catch (err) {
+        send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', err instanceof Error ? err.message : String(err)));
+        design.runs.finish(run, 'failed', 1, null);
+      } finally {
+        critiqueRunRegistry.unregister(critiqueProjectKey, critiqueRunId);
       }
+      return;
     }
 
-    // Structured streams (Claude Code) go through a line-delimited JSON
-    // parser that turns stream_event objects into UI-friendly events. For
-    // plain streams (most other CLIs) we forward raw chunks unchanged so
-    // the browser can append them to the assistant's text buffer.
-    let agentStreamError = null;
-    // Tracks whether any stream the run is using actually emitted user-
-    // visible content. Only the streams routed through `sendAgentEvent`
-    // contribute to this flag; ACP sessions and plain stdout streams are
-    // covered by their own success/failure paths and the empty-output
-    // guard below skips them via `trackingSubstantiveOutput`.
-    let agentProducedOutput = false;
-    let trackingSubstantiveOutput = false;
-    // Event types that count as "the agent actually produced something the
-    // user can see." Lifecycle markers (`status`) and meter readings
-    // (`usage`) deliberately do NOT count — a model can emit token-usage
-    // numbers for an empty completion (issue #691), and a `status:running`
-    // banner without any follow-up is exactly the silent-failure shape we
-    // want to surface as failed instead of succeeded.
-    const SUBSTANTIVE_AGENT_EVENT_TYPES = new Set([
-      'text_delta',
-      'thinking_delta',
-      'tool_use',
-      'tool_result',
-      'artifact',
-    ]);
-    const sendAgentEvent = (ev) => {
-      if (ev?.type === 'error') {
-        if (agentStreamError) return;
-        agentStreamError = String(ev.message || 'Agent stream error');
+    // Runtime-specific stream/session protocols are selected by the adapter;
+    // this chat layer only updates generic run activity and lifecycle state.
+    const runtimeAttachment = runtimeAdapter.attach({
+      child,
+      prompt: composed,
+      cwd: effectiveCwd,
+      model: safeModel,
+      imagePaths: safeImages,
+      uploadRoot: UPLOAD_DIR,
+      mcpServers,
+      send: (event, data) => {
+        noteAgentActivity();
+        send(event, data);
+      },
+      emitAgentEvent: (ev) => {
+        lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
+        noteAgentActivity();
+        send('agent', ev);
+      },
+      emitRuntimeError: (message, details) => {
         clearInactivityWatchdog();
-        send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', agentStreamError, {
-          details: ev.raw ? { raw: ev.raw } : undefined,
+        send('error', createSseErrorPayload('AGENT_EXECUTION_FAILED', message, {
+          details: details?.raw ? { raw: details.raw } : undefined,
           retryable: false,
         }));
-        return;
-      }
-      lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
-      noteAgentActivity();
-      if (ev?.type && SUBSTANTIVE_AGENT_EVENT_TYPES.has(ev.type)) {
-        agentProducedOutput = true;
-      }
-      send('agent', ev);
-    };
-
-    if (def.streamFormat === 'claude-stream-json') {
-      const claude = createClaudeStreamHandler((ev) => {
-        lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
-        noteAgentActivity();
-        send('agent', ev);
-      });
-      child.stdout.on('data', (chunk) => claude.feed(chunk));
-      child.on('close', () => claude.flush());
-    } else if (def.streamFormat === 'qoder-stream-json') {
-      trackingSubstantiveOutput = true;
-      const qoder = createQoderStreamHandler(sendAgentEvent);
-      child.stdout.on('data', (chunk) => qoder.feed(chunk));
-      child.on('close', () => qoder.flush());
-    } else if (def.streamFormat === 'copilot-stream-json') {
-      const copilot = createCopilotStreamHandler((ev) => {
-        lastAgentEventPhase = summarizeAgentEventForInactivity(ev);
-        noteAgentActivity();
-        send('agent', ev);
-      });
-      child.stdout.on('data', (chunk) => copilot.feed(chunk));
-      child.on('close', () => copilot.flush());
-    } else if (def.streamFormat === 'pi-rpc') {
-      // Route through sendAgentEvent so that pi-rpc's error events
-      // (extension_error, auto_retry_end with success=false, and the
-      // message_update error delta) set agentStreamError and flip the
-      // run to `failed` on close — same path as qoder-stream-json and
-      // json-event-stream after issue #691. Also enables the
-      // substantive-output guard (agentProducedOutput) so a pi run
-      // that exits 0 without producing visible content is caught.
-      //
-      // attachPiRpcSession invokes its send callback with the two-arg
-      // channel/payload shape: send('agent', payload) for normal events
-      // and send('error', {message}) from fail(). sendAgentEvent
-      // expects a single event object, so we adapt at the call site:
-      //   - 'agent' channel → relay payload through sendAgentEvent
-      //   - 'error' channel → route through the daemon's error path
-      //     (createSseErrorPayload + send SSE + set agentStreamError)
-      trackingSubstantiveOutput = true;
-      acpSession = attachPiRpcSession({
-        child,
-        prompt: composed,
-        cwd: effectiveCwd,
-        model: safeModel,
-        send: (channel, payload) => {
-          if (channel === 'agent') {
-            sendAgentEvent(payload);
-          } else if (channel === 'error') {
-            if (agentStreamError) return;
-            agentStreamError = String(payload?.message || 'Pi session error');
-            clearInactivityWatchdog();
-            send('error', createSseErrorPayload(
-              'AGENT_EXECUTION_FAILED',
-              agentStreamError,
-              { retryable: false },
-            ));
-          } else {
-            noteAgentActivity();
-            send(channel, payload);
-          }
-        },
-        imagePaths: def.supportsImagePaths ? safeImages : [],
-        uploadRoot: UPLOAD_DIR,
-      });
-    } else if (def.streamFormat === 'acp-json-rpc') {
-      acpSession = attachAcpSession({
-        child,
-        prompt: composed,
-        cwd: effectiveCwd,
-        model: safeModel,
-        mcpServers,
-        send: (event, data) => {
-          noteAgentActivity();
-          send(event, data);
-        },
-      });
-    } else if (def.streamFormat === 'json-event-stream') {
-      // Pipe through sendAgentEvent so the OpenCode `type:'error'` frame
-      // (now emitted as a real error event by json-event-stream.ts after
-      // #691) actually triggers `agentStreamError` instead of being
-      // forwarded as a no-op `agent` SSE event. This also wires the
-      // substantive-output tracking the close handler reads below.
-      trackingSubstantiveOutput = true;
-      const handler = createJsonEventStreamHandler(
-        def.eventParser || def.id,
-        sendAgentEvent,
-      );
-      child.stdout.on('data', (chunk) => handler.feed(chunk));
-      child.on('close', () => handler.flush());
-    } else {
-      child.stdout.on('data', (chunk) => {
-        noteAgentActivity();
-        send('stdout', { chunk });
-      });
-    }
+      },
+    });
     // Wire the acpSession onto the run so cancel() can call abort()
     // instead of raw SIGTERM (applies to pi-rpc and acp-json-rpc).
+    acpSession = runtimeAttachment.session;
     run.acpSession = acpSession;
     child.stderr.on('data', (chunk) => {
       noteAgentActivity();
@@ -4193,12 +4063,6 @@ export async function startServer({
       clearInactivityWatchdog();
       revokeToolToken('child_exit');
       unregisterChatAgentEventSink();
-      if (acpSession?.hasFatalError()) {
-        return design.runs.finish(run, 'failed', code ?? 1, signal ?? null);
-      }
-      if (agentStreamError) {
-        return design.runs.finish(run, 'failed', code ?? 1, signal ?? null);
-      }
       // Empty-output guard: a clean `code === 0` exit on a stream we are
       // tracking, with no error frame and no substantive event, means the
       // run silently finished without producing anything visible. That used
@@ -4211,8 +4075,9 @@ export async function startServer({
       if (
         code === 0 &&
         !run.cancelRequested &&
-        trackingSubstantiveOutput &&
-        !agentProducedOutput
+        runtimeAttachment.trackingSubstantiveOutput &&
+        !runtimeAttachment.producedSubstantiveOutput() &&
+        !runtimeAttachment.streamError()
       ) {
         send('error', createSseErrorPayload(
           'AGENT_EXECUTION_FAILED',
@@ -4221,29 +4086,11 @@ export async function startServer({
         ));
         return design.runs.finish(run, 'failed', code, signal);
       }
-      // ACP agents that don't shut down on stdin.end() (e.g. Devin for
-      // Terminal) are forced to exit via SIGTERM from attachAcpSession after
-      // a clean prompt completion. Without an override, the chat run would
-      // be marked `failed` because `code === 0` fails (code is null on a
-      // signal exit). `completedSuccessfully()` reports whether the ACP
-      // session resolved without a fatal error or abort.
-      //
-      // Scope the override narrowly to the exact forced-shutdown shape this
-      // PR introduces: code is null AND signal is SIGTERM AND the ACP
-      // session reported clean completion. Any other post-response failure
-      // (non-zero exit code, SIGKILL, SIGSEGV, etc.) still propagates as
-      // `failed`, preserving the existing close-status behavior for genuine
-      // post-response process problems.
-      const acpCleanCompletion =
-        typeof acpSession?.completedSuccessfully === 'function' &&
-        acpSession.completedSuccessfully();
-      const acpForcedShutdown =
-        code === null && signal === 'SIGTERM' && acpCleanCompletion;
-      const status = run.cancelRequested
-        ? 'canceled'
-        : code === 0 || acpForcedShutdown
-          ? 'succeeded'
-          : 'failed';
+      const status = runtimeAttachment.classifyClose({
+        code,
+        signal,
+        canceled: run.cancelRequested,
+      });
       if (status === 'failed') {
         const diagnostic = diagnoseClaudeCliFailure({
           agentId: def.id,

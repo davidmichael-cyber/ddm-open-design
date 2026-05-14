@@ -1,4 +1,6 @@
 import { describe, test } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
 import {
   createRuntimeAdapter,
@@ -47,6 +49,53 @@ describe('runtime adapter foundation', () => {
         def.streamFormat === 'plain',
       );
     }
+  });
+
+  test('exposes ACP MCP support as an adapter capability', () => {
+    for (const def of AGENT_DEFS) {
+      assert.equal(
+        createRuntimeAdapter(def).acceptsExternalMcpServers(),
+        def.streamFormat === 'acp-json-rpc',
+      );
+    }
+  });
+
+  test('classifies close status through attachment state', () => {
+    const child = new EventEmitter() as EventEmitter & { stdout: PassThrough };
+    child.stdout = new PassThrough();
+    const plain = createRuntimeAdapter(minimalAgentDef({
+      bin: 'plain-agent',
+      streamFormat: 'plain',
+    })).attach({
+      child: child as never,
+      prompt: 'hello',
+      send: () => {},
+    });
+
+    assert.equal(plain.classifyClose({ code: 0, signal: null }), 'succeeded');
+    assert.equal(plain.classifyClose({ code: 1, signal: null }), 'failed');
+    assert.equal(
+      plain.classifyClose({ code: null, signal: 'SIGTERM', canceled: true }),
+      'canceled',
+    );
+  });
+
+  test('keeps structured empty-output failures in adapter close classification', () => {
+    const child = new EventEmitter() as EventEmitter & { stdout: PassThrough };
+    child.stdout = new PassThrough();
+    const structured = createRuntimeAdapter(minimalAgentDef({
+      bin: 'opencode',
+      id: 'opencode',
+      streamFormat: 'json-event-stream',
+    })).attach({
+      child: child as never,
+      prompt: 'hello',
+      send: () => {},
+    });
+
+    assert.equal(structured.trackingSubstantiveOutput, true);
+    assert.equal(structured.producedSubstantiveOutput(), false);
+    assert.equal(structured.classifyClose({ code: 0, signal: null }), 'failed');
   });
 
   test('fails fast for unknown stream formats', () => {

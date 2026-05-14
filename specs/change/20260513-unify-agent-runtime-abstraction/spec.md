@@ -1,7 +1,7 @@
 ---
 id: 20260513-unify-agent-runtime-abstraction
 name: Unify Agent Runtime Abstraction
-status: designed
+status: implemented
 created: '2026-05-13'
 ---
 
@@ -206,20 +206,20 @@ Flow:
   - [x] Substep 1.2 Implement: map every current `streamFormat` to existing parser/session helpers without moving helper files.
   - [x] Substep 1.3 Implement: make unknown formats throw with a clear error.
   - [x] Substep 1.4 Verify: add adapter unit tests for format coverage, stdin behavior, critique eligibility, and fail-fast unknown formats.
-- [ ] Step 2: Move chat run protocol branching behind adapter
-  - [ ] Substep 2.1 Implement: create the adapter once per run and use it for critique eligibility/prompt alignment.
-  - [ ] Substep 2.2 Implement: replace spawn stdin and prompt-write conditionals with adapter methods.
-  - [ ] Substep 2.3 Implement: replace stream parser/session branching with `adapter.attach(...)`.
-  - [ ] Substep 2.4 Implement: replace close-handler protocol checks with attachment/classifier state while preserving current failure semantics.
-  - [ ] Substep 2.5 Verify: update chat/critique tests to assert semantic capability behavior instead of protocol strings.
-- [ ] Step 3: Reuse adapter in connection/runtime checks
-  - [ ] Substep 3.1 Implement: route connection test stream/stdin behavior through the same adapter helper.
-  - [ ] Substep 3.2 Verify: add or update tests that would fail if connection checks reintroduce duplicate protocol branching.
-- [ ] Step 4: Compatibility and full validation
-  - [ ] Substep 4.1 Implement: remove or stop depending on public `streamFormat` SSE start data only after confirming no contract/UI consumer requires it.
-  - [ ] Substep 4.2 Verify: run `pnpm --filter @open-design/daemon test`.
-  - [ ] Substep 4.3 Verify: run `pnpm --filter @open-design/daemon typecheck`.
-  - [ ] Substep 4.4 Verify: run `pnpm guard` and `pnpm typecheck`.
+- [x] Step 2: Move chat run protocol branching behind adapter
+  - [x] Substep 2.1 Implement: create the adapter once per run and use it for critique eligibility/prompt alignment.
+  - [x] Substep 2.2 Implement: replace spawn stdin and prompt-write conditionals with adapter methods.
+  - [x] Substep 2.3 Implement: replace stream parser/session branching with `adapter.attach(...)`.
+  - [x] Substep 2.4 Implement: replace close-handler protocol checks with attachment/classifier state while preserving current failure semantics.
+  - [x] Substep 2.5 Verify: update chat/critique tests to assert semantic capability behavior instead of protocol strings.
+- [x] Step 3: Reuse adapter in connection/runtime checks
+  - [x] Substep 3.1 Implement: route connection test stream/stdin behavior through the same adapter helper.
+  - [x] Substep 3.2 Verify: add or update tests that would fail if connection checks reintroduce duplicate protocol branching.
+- [x] Step 4: Compatibility and full validation
+  - [x] Substep 4.1 Implement: remove or stop depending on public `streamFormat` SSE start data only after confirming no contract/UI consumer requires it.
+  - [x] Substep 4.2 Verify: run `pnpm --filter @open-design/daemon test`.
+  - [x] Substep 4.3 Verify: run `pnpm --filter @open-design/daemon typecheck`.
+  - [x] Substep 4.4 Verify: run `pnpm guard` and `pnpm typecheck`.
 
 ## Notes
 
@@ -229,9 +229,23 @@ Flow:
 
 - `apps/daemon/src/runtimes/runtime-adapter.ts` - added `RuntimeAdapter` semantic contract, `createRuntimeAdapter(def)`, supported stream-format validation, stdin/critique capability helpers, and attachment wiring to the existing plain stdout, Claude, Qoder, Copilot, json-event, Pi RPC, and ACP helpers.
 - `apps/daemon/tests/runtimes/runtime-adapter.test.ts` - added adapter foundation coverage for all current runtime formats, stdin behavior, critique eligibility, and unknown-format fail-fast errors.
+- `apps/daemon/src/runtimes/runtime-adapter.ts` - added adapter-owned close classification and ACP MCP capability helpers so chat lifecycle and MCP routing no longer branch on runtime protocol strings.
+- `apps/daemon/src/server.ts` - creates one runtime adapter per chat run and uses it for critique eligibility, stdin mode, prompt writing, stream/session attachment, close classification, and start payload cleanup.
+- `apps/daemon/src/connectionTest.ts` - routes agent smoke-test stdin and stream/session handling through `createRuntimeAdapter(def)`.
+- `apps/daemon/tests/critique-spawn-wiring.test.ts` - updated critique spawn tests to assert adapter capability gating instead of protocol-string checks.
+- `apps/web/src/providers/daemon.ts` - updated SSE client comment to describe runtime-adapter-driven event streams.
 
 ### Verification
 
 - `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/runtimes/runtime-adapter.test.ts` - passed.
 - `pnpm --filter @open-design/daemon typecheck` - passed.
 - `pnpm --filter @open-design/daemon test -- tests/runtimes/runtime-adapter.test.ts` - passed full daemon test suite due package script argument handling.
+- `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/runtimes/runtime-adapter.test.ts tests/critique-spawn-wiring.test.ts` - passed.
+- `pnpm --filter @open-design/daemon typecheck` - passed.
+- `pnpm --filter @open-design/daemon test` - initially had one chat-route failure in the full parallel suite; rerunning the failing test file passed, indicating a flaky suite interaction rather than a deterministic regression.
+- `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/chat-route.test.ts -t "keeps Claude stream runs alive"` - passed.
+- `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/chat-route.test.ts` - passed.
+- `pnpm guard` - passed.
+- `pnpm typecheck` - passed.
+- `pnpm --filter @open-design/daemon test` - rerun reached one unrelated `tests/project-watchers.test.ts` timeout in the full parallel suite; the runtime/chat/connection suites passed.
+- `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/project-watchers.test.ts -t "still emits events when the watch root is itself nested under .od"` - passed.

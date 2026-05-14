@@ -27,14 +27,11 @@ import {
   spawnEnvForAgent,
 } from './agents.js';
 import { createCommandInvocation } from '@open-design/platform';
-import { attachAcpSession } from './acp.js';
-import { attachPiRpcSession } from './pi-rpc.js';
-import { createClaudeStreamHandler } from './claude-stream.js';
 import { diagnoseClaudeCliFailure } from './claude-diagnostics.js';
-import { createCopilotStreamHandler } from './copilot-stream.js';
-import { createJsonEventStreamHandler } from './json-event-stream.js';
 import { agentCliEnvForAgent, validateAgentCliEnv } from './app-config.js';
 import type { AgentCliEnvPrefs } from './app-config.js';
+import { createRuntimeAdapter } from './runtimes/runtime-adapter.js';
+import type { RuntimeAgentDef } from './runtimes/types.js';
 import {
   isLoopbackApiHost,
   validateBaseUrl,
@@ -899,7 +896,7 @@ interface AgentSpawnHandle {
 }
 
 function attachAgentStreamHandlers(
-  def: { streamFormat?: string; eventParser?: string; id: string; promptViaStdin?: boolean },
+  def: RuntimeAgentDef,
   child: ReturnType<typeof spawn>,
   prompt: string,
   cwd: string,
@@ -913,57 +910,18 @@ function attachAgentStreamHandlers(
   } | null = null;
   child.stdout?.setEncoding('utf8');
   child.stderr?.setEncoding('utf8');
-  if (def.streamFormat === 'claude-stream-json') {
-    const claude = createClaudeStreamHandler((ev: unknown) => send('agent', ev));
-    child.stdout?.on('data', (chunk: string) => {
-      appendRawStdout?.(chunk);
-      claude.feed(chunk);
-    });
-    child.on('close', () => claude.flush());
-  } else if (def.streamFormat === 'copilot-stream-json') {
-    const copilot = createCopilotStreamHandler((ev: unknown) => send('agent', ev));
-    child.stdout?.on('data', (chunk: string) => copilot.feed(chunk));
-    child.on('close', () => copilot.flush());
-  } else if (def.streamFormat === 'pi-rpc') {
-    acpSession = attachPiRpcSession({
-      child,
-      prompt,
-      cwd,
-      model: model ?? null,
-      send,
-      imagePaths: [],
-    });
-  } else if (def.streamFormat === 'acp-json-rpc') {
-    acpSession = attachAcpSession({
-      child,
-      prompt,
-      cwd,
-      model: model ?? null,
-      mcpServers: [],
-      send,
-    });
-  } else if (def.streamFormat === 'json-event-stream') {
-    const handler = createJsonEventStreamHandler(
-      def.eventParser || def.id,
-      (ev: unknown) => {
-        const data = (ev ?? {}) as { type?: unknown; message?: unknown };
-        if (data.type === 'error') {
-          send('error', {
-            message:
-              typeof data.message === 'string'
-                ? data.message
-                : 'agent stream error',
-          });
-          return;
-        }
-        send('agent', ev);
-      },
-    );
-    child.stdout?.on('data', (chunk: string) => handler.feed(chunk));
-    child.on('close', () => handler.flush());
-  } else {
-    child.stdout?.on('data', (chunk: string) => send('stdout', { chunk }));
-  }
+  child.stdout?.on('data', (chunk: string) => appendRawStdout?.(chunk));
+  const adapter = createRuntimeAdapter(def);
+  const attachment = adapter.attach({
+    child,
+    prompt,
+    cwd,
+    model: model ?? null,
+    mcpServers: [],
+    imagePaths: [],
+    send,
+  });
+  acpSession = attachment.session;
   child.stderr?.on('data', (chunk: string) => send('stderr', { chunk }));
   return { child, acpSession };
 }
@@ -999,6 +957,7 @@ async function testAgentConnectionInternal(
       detail: `Unknown agent id: ${input.agentId}`,
     };
   }
+  const runtimeAdapter = createRuntimeAdapter(def);
   const configuredAgentEnv = agentCliEnvForAgent(
     validateAgentCliEnv(input.agentCliEnv),
     input.agentId,
@@ -1123,8 +1082,7 @@ async function testAgentConnectionInternal(
         detail: redactSecrets(detail),
       };
     }
-    const stdinMode =
-      def.promptViaStdin || def.streamFormat === 'acp-json-rpc' ? 'pipe' : 'ignore';
+    const stdinMode = runtimeAdapter.stdinMode();
     const env = applyAgentLaunchEnv(spawnEnvForAgent(
       input.agentId,
       {
@@ -1281,7 +1239,7 @@ async function testAgentConnectionInternal(
       };
     };
 
-    if (def.promptViaStdin && child.stdin && def.streamFormat !== 'pi-rpc') {
+    if (runtimeAdapter.shouldWritePromptToStdin() && child.stdin) {
       child.stdin.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code !== 'EPIPE') {
           sink.send('error', {

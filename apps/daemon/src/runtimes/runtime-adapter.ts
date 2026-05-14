@@ -42,11 +42,18 @@ export type RuntimeAttachContext = {
   emitRuntimeError?: (message: string, details?: { raw?: unknown }) => void;
 };
 
+export type RuntimeExit = {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  canceled?: boolean;
+};
+
 export type RuntimeAttachment = {
   session: RuntimeSessionHandle | null;
   trackingSubstantiveOutput: boolean;
   producedSubstantiveOutput(): boolean;
   streamError(): string | null;
+  classifyClose(exit: RuntimeExit): 'succeeded' | 'failed' | 'canceled';
 };
 
 type MutableRuntimeAttachment = RuntimeAttachment & {
@@ -60,6 +67,7 @@ export type RuntimeAdapter = {
   readonly streamFormat: RuntimeStreamFormat;
   readonly eventParser: string;
   supportsCritiqueTheater(): boolean;
+  acceptsExternalMcpServers(): boolean;
   stdinMode(): RuntimeStdinMode;
   shouldWritePromptToStdin(): boolean;
   attach(context: RuntimeAttachContext): RuntimeAttachment;
@@ -96,6 +104,23 @@ function createAttachmentState(trackingSubstantiveOutput: boolean): MutableRunti
     },
     streamError() {
       return error;
+    },
+    classifyClose(exit) {
+      if (exit.canceled) return 'canceled';
+      if (this.session?.hasFatalError?.()) return 'failed';
+      if (error) return 'failed';
+      if (
+        exit.code === 0 &&
+        trackingSubstantiveOutput &&
+        !producedOutput
+      ) {
+        return 'failed';
+      }
+      const cleanForcedShutdown =
+        exit.code === null &&
+        exit.signal === 'SIGTERM' &&
+        this.session?.completedSuccessfully?.() === true;
+      return exit.code === 0 || cleanForcedShutdown ? 'succeeded' : 'failed';
     },
     markProducedOutput(event: RuntimeAgentEvent) {
       if (
@@ -140,6 +165,9 @@ export function createRuntimeAdapter(def: RuntimeAgentDef): RuntimeAdapter {
     eventParser,
     supportsCritiqueTheater() {
       return streamFormat === 'plain';
+    },
+    acceptsExternalMcpServers() {
+      return streamFormat === 'acp-json-rpc';
     },
     stdinMode() {
       return def.promptViaStdin || streamFormat === 'acp-json-rpc'

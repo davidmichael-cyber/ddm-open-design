@@ -3186,7 +3186,7 @@ marks a version unresolvable for new installs while preserving lockfile replay.`
     name: parsed.name,
     version: parsed.range,
     reason,
-    url: `https://github.com/open-design/plugin-registry/issues/new?${params.toString()}`,
+    url: `https://github.com/nexu-io/open-design/issues/new?${params.toString()}`,
     body,
   };
   if (flags.json) {

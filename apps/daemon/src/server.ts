@@ -183,6 +183,7 @@ import { subscribe as subscribeFileEvents } from './project-watchers.js';
 import { renderDesignSystemPreview } from './design-system-preview.js';
 import { renderDesignSystemShowcase } from './design-system-showcase.js';
 import { createChatRunService } from './runs.js';
+import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
 import { reportRunCompletedFromDaemon } from './langfuse-bridge.js';
 import {
   createAnalyticsService,
@@ -10799,26 +10800,13 @@ export async function startServer({
         exitCode?: number | null;
         signal?: string | null;
       }) => {
-        const result =
-          status.status === 'succeeded'
-            ? 'success'
-            : status.status === 'canceled'
-              ? 'cancelled'
-              : 'failed';
-        let errorCode: string | undefined;
-        if (result === 'failed') {
-          errorCode = status.errorCode ?? undefined;
-          if (!errorCode) {
-            if (status.signal) errorCode = `AGENT_SIGNAL_${status.signal}`;
-            else if (typeof status.exitCode === 'number' && status.exitCode !== 0) {
-              errorCode = `AGENT_EXIT_${status.exitCode}`;
-            } else {
-              errorCode = 'AGENT_TERMINATED_UNKNOWN';
-            }
-          }
-        } else if (result === 'cancelled') {
-          errorCode = status.errorCode ?? undefined;
-        }
+        // `deriveRunErrorCode` is the invariant: when `result === 'failed'`
+        // it always returns a non-empty string so dashboards keyed on
+        // `error_code` never see a blank cell. Live in `run-result.ts`
+        // with unit coverage for the fall-through cases (ACP fatal,
+        // child close without error event, etc.).
+        const result = runResultFromStatus(status.status);
+        const errorCode = deriveRunErrorCode(status);
         let inputTokens: number | undefined;
         let outputTokens: number | undefined;
         for (let i = run.events.length - 1; i >= 0; i -= 1) {

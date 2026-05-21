@@ -140,6 +140,10 @@ beforeEach(() => {
   }));
 });
 
+function continueToGeneration() {
+  fireEvent.click(screen.getByRole('button', { name: /^(continue to generation|generate)$/i }));
+}
+
 describe('design system package audit helpers', () => {
   it('summarizes passing audits and builds repair prompts for findings', () => {
     expect(summarizeDesignSystemPackageAudit({
@@ -288,8 +292,8 @@ describe('DesignSystemCreationFlow', () => {
         value: 'Acme: analytics workspace for operations teams',
       },
     });
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(screen.getByText('Opening project...')).toBeTruthy());
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(project.id, project));
@@ -368,8 +372,8 @@ describe('DesignSystemCreationFlow', () => {
         value: 'Acme: analytics workspace for operations teams',
       },
     });
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(project.id, project));
 
@@ -867,8 +871,8 @@ describe('DesignSystemCreationFlow', () => {
 
     await waitFor(() => expect(screen.getByText('/Users/qingyu/work/comfyui')).toBeTruthy());
 
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.patchProject).toHaveBeenCalled());
     expect(mocks.patchProject).toHaveBeenCalledWith(
@@ -952,8 +956,8 @@ describe('DesignSystemCreationFlow', () => {
     fireEvent.change(localCodeInput!, { target: { files: [tokenFile] } });
     expect(screen.getByText('1 local code files selected')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.uploadProjectFile).toHaveBeenCalled());
     expect(mocks.uploadProjectFile).toHaveBeenCalledWith(
@@ -1068,8 +1072,8 @@ describe('DesignSystemCreationFlow', () => {
 
     await waitFor(() => expect(screen.getByText('2 local code files selected')).toBeTruthy());
 
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.uploadProjectFile).toHaveBeenCalledTimes(2));
     expect(mocks.uploadProjectFile).toHaveBeenCalledWith(
@@ -1141,8 +1145,8 @@ describe('DesignSystemCreationFlow', () => {
     fireEvent.change(figInput!, { target: { files: [figFile] } });
     expect(screen.getByText('product-design.fig')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.writeProjectTextFile).toHaveBeenCalledWith(
       project.id,
@@ -1219,8 +1223,8 @@ describe('DesignSystemCreationFlow', () => {
     fireEvent.change(assetInput!, { target: { files: [logoFile, fontFile] } });
     expect(screen.getByText('logo.svg, brand.woff2')).toBeTruthy();
 
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.uploadProjectFile).toHaveBeenCalledTimes(2));
     expect(mocks.uploadProjectFile).toHaveBeenCalledWith(project.id, logoFile, 'assets/logo.svg');
@@ -1281,8 +1285,8 @@ describe('DesignSystemCreationFlow', () => {
     fireEvent.change(screen.getByPlaceholderText(/Mission Impastabowl/i), {
       target: { value: 'https://github.com/cherryhq/cherry-studio' },
     });
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.createDesignSystemDraft).toHaveBeenCalled());
 
@@ -1594,8 +1598,8 @@ describe('DesignSystemCreationFlow', () => {
     const input = screen.getByPlaceholderText('https://github.com/owner/repo') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'https://github.com/nexu-io/open-design' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.writeProjectTextFile).toHaveBeenCalled());
     expect(mocks.writeProjectTextFile).toHaveBeenCalledWith(
@@ -1750,8 +1754,8 @@ describe('DesignSystemCreationFlow', () => {
     const input = screen.getByPlaceholderText('https://github.com/owner/repo') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'https://github.com/nexu-io/open-design' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByText('Generate'));
-    fireEvent.click(screen.getByText('Generate'));
+    continueToGeneration();
+    continueToGeneration();
 
     await waitFor(() => expect(mocks.writeProjectTextFile).toHaveBeenCalled());
     const sourceManifestCall = mocks.writeProjectTextFile.mock.calls.find(

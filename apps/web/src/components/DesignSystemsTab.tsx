@@ -17,7 +17,7 @@ import {
 } from '../providers/registry';
 import { buildSrcdoc } from '../runtime/srcdoc';
 import { Icon } from './Icon';
-import type { DesignSystemSummary, Surface } from '../types';
+import type { DesignSystemSummary, ProjectTemplate, Surface } from '../types';
 
 interface Props {
   systems: DesignSystemSummary[];
@@ -27,6 +27,7 @@ interface Props {
   onCreate?: () => void;
   onOpenSystem?: (id: string) => void;
   onSystemsRefresh?: () => Promise<void> | void;
+  templates?: ProjectTemplate[];
 }
 
 const CATEGORY_ORDER = [

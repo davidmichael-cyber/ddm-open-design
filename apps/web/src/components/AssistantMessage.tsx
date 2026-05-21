@@ -887,7 +887,24 @@ function ProducedFiles({
       <div className="produced-files-label">{t("assistant.producedFiles")}</div>
       <div className="produced-files-list">
         {files.map((f) => (
-          <div key={f.name} className="produced-file">
+          <div
+            key={f.name}
+            className={`produced-file${onRequestOpenFile ? ' is-openable' : ''}`}
+            role={onRequestOpenFile ? 'button' : undefined}
+            tabIndex={onRequestOpenFile ? 0 : undefined}
+            onClick={onRequestOpenFile ? () => onRequestOpenFile(f.name) : undefined}
+            onKeyDown={
+              onRequestOpenFile
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRequestOpenFile(f.name);
+                    }
+                  }
+                : undefined
+            }
+            title={onRequestOpenFile ? `${t("assistant.openFile")}: ${f.name}` : f.name}
+          >
             <span className="produced-file-icon" aria-hidden>
               <Icon name={kindIconName(f.kind)} size={14} />
             </span>
@@ -896,19 +913,11 @@ function ProducedFiles({
             </span>
             <span className="produced-file-size">{humanBytes(f.size)}</span>
             <div className="produced-file-actions">
-              {onRequestOpenFile ? (
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={() => onRequestOpenFile(f.name)}
-                >
-                  {t("assistant.openFile")}
-                </button>
-              ) : null}
               <a
                 className="ghost-link"
                 href={projectFileUrl(projectId, f.name)}
                 download={f.name}
+                onClick={(e) => e.stopPropagation()}
               >
                 {t("assistant.downloadFile")}
               </a>

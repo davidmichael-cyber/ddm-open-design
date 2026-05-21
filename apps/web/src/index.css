@@ -13547,6 +13547,15 @@ button.ghost.mcp-copy-btn:hover:not(:disabled) {
   border: 1px solid var(--border);
   font-size: 12px;
 }
+.produced-file.is-openable {
+  cursor: pointer;
+}
+.produced-file.is-openable:hover,
+.produced-file.is-openable:focus-visible {
+  border-color: var(--accent);
+  background: var(--bg-panel-strong);
+  outline: none;
+}
 .produced-file-icon { width: 22px; text-align: center; color: var(--text-muted); }
 .produced-file-name {
   flex: 1;

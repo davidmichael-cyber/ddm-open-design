@@ -392,32 +392,43 @@ describe('DesignFilesPanel large-list regression', () => {
     expect(container.querySelector('.df-select-bar')).toBeNull();
   });
 
-  it('uses non-control table cells as file row click targets', () => {
+  it('opens directly previewable files from non-control table cells', () => {
     const files = generateFiles(1);
     const { container, onOpenFile } = renderPanel(files);
     const row = container.querySelector('.df-file-row')!;
 
     fireEvent.click(row.querySelector('.df-cell-icon')!);
-    expect(container.querySelector('[data-testid="design-file-preview"]')?.textContent).toContain(
-      'file-1.html',
-    );
+    expect(onOpenFile).toHaveBeenCalledWith('file-1.html');
 
+    onOpenFile.mockClear();
     fireEvent.click(row.querySelector('.df-cell-kind')!);
-    expect(container.querySelector('[data-testid="design-file-preview"]')?.textContent).toContain(
-      'file-1.html',
-    );
+    expect(onOpenFile).toHaveBeenCalledWith('file-1.html');
 
+    onOpenFile.mockClear();
     fireEvent.click(row.querySelector('.df-cell-name')!);
-    expect(container.querySelector('[data-testid="design-file-preview"]')?.textContent).toContain(
-      'file-1.html',
-    );
+    expect(onOpenFile).toHaveBeenCalledWith('file-1.html');
 
+    onOpenFile.mockClear();
     fireEvent.doubleClick(row.querySelector('.df-cell-name')!);
     expect(onOpenFile).toHaveBeenCalledWith('file-1.html');
     onOpenFile.mockClear();
 
     fireEvent.doubleClick(row.querySelector('.df-cell-time')!);
     expect(onOpenFile).toHaveBeenCalledWith('file-1.html');
+    expect(container.querySelector('[data-testid="design-file-preview"]')).toBeNull();
+  });
+
+  it('keeps the side preview for non-renderable file rows', () => {
+    const files = [file({ name: 'data.ts', kind: 'code', mime: 'text/typescript' })];
+    const { container, onOpenFile } = renderPanel(files);
+    const row = container.querySelector('.df-file-row')!;
+
+    fireEvent.click(row.querySelector('.df-cell-name')!);
+
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="design-file-preview"]')?.textContent).toContain(
+      'data.ts',
+    );
   });
 
   it('does not preview or open files from row controls', () => {
@@ -434,41 +445,19 @@ describe('DesignFilesPanel large-list regression', () => {
     expect(onOpenFile).not.toHaveBeenCalled();
   });
 
-  it('renders sketch files with the static sketch preview instead of a broken image', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      version: 1,
-      items: [
-        {
-          kind: 'rect',
-          x: 20,
-          y: 16,
-          w: 120,
-          h: 72,
-          color: '#1c1b1a',
-          size: 2,
-        },
-      ],
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    }));
-    vi.stubGlobal('fetch', fetchMock);
-
+  it('opens sketch files directly instead of routing through the side preview', () => {
     const sketchFile = file({
       name: 'board.sketch.json',
       path: 'board.sketch.json',
       kind: 'sketch',
       mime: 'application/json; charset=utf-8',
     });
-    const { container } = renderPanel([sketchFile]);
+    const { container, onOpenFile } = renderPanel([sketchFile]);
 
     fireEvent.click(container.querySelector('.df-file-row .df-row-name-btn')!);
 
-    await waitFor(() => {
-      expect(container.querySelector('[data-testid="sketch-preview-svg"]')).toBeTruthy();
-    });
-    expect(container.querySelector('.df-preview-thumb img')).toBeNull();
-    expect(fetchMock).toHaveBeenCalledWith('/api/projects/test-project/raw/board.sketch.json', { cache: 'no-store' });
+    expect(onOpenFile).toHaveBeenCalledWith('board.sketch.json');
+    expect(container.querySelector('[data-testid="design-file-preview"]')).toBeNull();
   });
 
   it('passes every selected file to batch delete', () => {

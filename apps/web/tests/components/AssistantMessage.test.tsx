@@ -7,7 +7,7 @@
  * streaming turns, or empty responses.
  */
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AssistantMessage } from '../../src/components/AssistantMessage';
@@ -47,6 +47,28 @@ function producedFile(name: string): ProjectFile {
 }
 
 describe('AssistantMessage feedback gate (issue #1288)', () => {
+  it('opens produced files from the whole row and keeps download as the secondary action', () => {
+    const onRequestOpenFile = vi.fn();
+    render(
+      <AssistantMessage
+        message={baseMessage({ producedFiles: [producedFile('index.html')] })}
+        streaming={false}
+        projectId="proj-1"
+        onRequestOpenFile={onRequestOpenFile}
+      />,
+    );
+
+    const row = screen.getByText('index.html').closest('.produced-file');
+    expect(row).toBeTruthy();
+    fireEvent.click(row!);
+    expect(onRequestOpenFile).toHaveBeenCalledWith('index.html');
+    expect(screen.queryByRole('button', { name: 'Open' })).toBeNull();
+
+    onRequestOpenFile.mockClear();
+    fireEvent.click(screen.getByRole('link', { name: 'Download' }));
+    expect(onRequestOpenFile).not.toHaveBeenCalled();
+  });
+
   it('shows the feedback widget after a successful turn that produced files', () => {
     render(
       <AssistantMessage

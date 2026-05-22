@@ -47,15 +47,25 @@ interface Sediment {
   scenario: string;
 }
 
+interface MalformedMarker {
+  line: string;
+  reason: string;
+}
+
 interface ParsedRun {
   steps: Step[];
   sediments: Sediment[];
+  malformedMarkers: MalformedMarker[];
   overall: "pass" | "fail" | "inconclusive" | "unknown";
   overallRationale: string;
   assistantTurns: number;
   outputTokens: number;
   toolCounts: Map<string, number>;
 }
+
+// Catch-all prefix for "this line looks like a marker but doesn't match
+// any strict regex" — used after specific regex matches fail.
+const MARKER_PREFIX = /^(STEP_START|STEP_DONE|SEDIMENT|RUN_DONE)\|/;
 
 // Greedy `(.+)` in the third group lets `|` appear inside verdict text;
 // the parser stops splitting after the third pipe by construction.
@@ -94,10 +104,16 @@ function iterateTextBlocks(rawInput: string): string[] {
   const trimmed = rawInput.trim();
   if (!trimmed) return blocks;
 
-  const extract = (ev: unknown): string | null => {
+  // Returns ALL text blocks in this event, in order. Claude can split
+  // one assistant message into multiple text/thinking/tool_use blocks;
+  // returning only the first text block (the previous behavior) silently
+  // dropped later STEP_DONE / RUN_DONE markers when they landed in a
+  // second text block of the same message.
+  const extract = (ev: unknown): string[] => {
+    const collected: string[] = [];
     if (ev && typeof ev === "object") {
       const obj = ev as Record<string, unknown>;
-      if (typeof obj.text === "string") return obj.text;
+      if (typeof obj.text === "string") collected.push(obj.text);
       const message = obj.message;
       if (message && typeof message === "object") {
         const content = (message as Record<string, unknown>).content;
@@ -105,13 +121,15 @@ function iterateTextBlocks(rawInput: string): string[] {
           for (const c of content) {
             if (c && typeof c === "object") {
               const cc = c as Record<string, unknown>;
-              if (cc.type === "text" && typeof cc.text === "string") return cc.text;
+              if (cc.type === "text" && typeof cc.text === "string") {
+                collected.push(cc.text);
+              }
             }
           }
         }
       }
     }
-    return null;
+    return collected;
   };
 
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -123,8 +141,7 @@ function iterateTextBlocks(rawInput: string): string[] {
         ? ((parsed as { events: unknown[] }).events)
         : [];
       for (const ev of events) {
-        const text = extract(ev);
-        if (text !== null) blocks.push(text);
+        for (const text of extract(ev)) blocks.push(text);
       }
       return blocks;
     } catch {
@@ -136,8 +153,7 @@ function iterateTextBlocks(rawInput: string): string[] {
     if (!line) continue;
     try {
       const ev: unknown = JSON.parse(line);
-      const text = extract(ev);
-      if (text !== null) blocks.push(text);
+      for (const text of extract(ev)) blocks.push(text);
     } catch {
       /* ignore unparseable lines */
     }
@@ -158,6 +174,7 @@ function parseRun(rawInput: string): ParsedRun {
   const steps = new Map<string, Step>();
   const stepOrder: string[] = [];
   const sediments: Sediment[] = [];
+  const malformedMarkers: MalformedMarker[] = [];
   let overall: ParsedRun["overall"] = "unknown";
   let overallRationale = "";
   const seenStart = new Set<string>();
@@ -250,6 +267,31 @@ function parseRun(rawInput: string): ParsedRun {
       if (runMatch && runMatch[1] && runMatch[2]) {
         overall = runMatch[1] as ParsedRun["overall"];
         overallRationale = runMatch[2].trim();
+        continue;
+      }
+
+      // Catch-all: a line that LOOKS like a marker (starts with
+      // STEP_START| / STEP_DONE| / SEDIMENT| / RUN_DONE|) but didn't
+      // match any strict regex above. Could be wrong status word
+      // ("passed" vs "pass"), wrong step-id pattern, escaped pipe,
+      // mid-line typo, etc. Surface it instead of silently dropping
+      // — the spec's strict marker contract is the only stable
+      // interface and silent loss breaks the audit trail.
+      if (MARKER_PREFIX.test(ln)) {
+        let reason = "malformed marker line";
+        if (ln.startsWith("STEP_DONE|")) {
+          reason = "STEP_DONE line doesn't match `STEP_DONE|step-NN|<status>|<verdict>` (status must be one of pass/warning/fail/inconclusive, lowercase)";
+        } else if (ln.startsWith("STEP_START|")) {
+          reason = "STEP_START line doesn't match `STEP_START|step-NN|<title>`";
+        } else if (ln.startsWith("RUN_DONE|")) {
+          reason = "RUN_DONE line doesn't match `RUN_DONE|<pass|fail|inconclusive>|<rationale>`";
+        } else if (ln.startsWith("SEDIMENT|")) {
+          reason = "SEDIMENT line doesn't match `SEDIMENT|<target>|<rationale>|<scenario>`";
+        }
+        // Cap stored line length to 500 chars so a runaway agent
+        // dump doesn't blow up the report.
+        const truncated = ln.length > 500 ? ln.slice(0, 497) + "..." : ln;
+        malformedMarkers.push({ line: truncated, reason });
       }
     }
   }
@@ -261,6 +303,7 @@ function parseRun(rawInput: string): ParsedRun {
   }
 
   return {
+    malformedMarkers,
     steps: stepOrder.map((id) => {
       const s = steps.get(id);
       if (!s) throw new Error(`internal: step ${id} dropped`);
@@ -338,6 +381,18 @@ function renderMarkdown(parsed: ParsedRun, args: CliArgs): string {
     }
   }
 
+  if (parsed.malformedMarkers.length > 0) {
+    add("### Malformed marker lines (parser surfaced these — never silent drop)");
+    add("");
+    for (const m of parsed.malformedMarkers) {
+      add(`- ${m.reason}:`);
+      add("  ```");
+      add(`  ${m.line}`);
+      add("  ```");
+    }
+    add("");
+  }
+
   if (passed.length > 0) {
     add(`<details>`);
     add(`<summary>✅ ${passed.length} scenarios passed — click to expand</summary>`);
@@ -390,15 +445,30 @@ function main(): void {
   let rawInput = "";
   try {
     rawInput = readFileSync(args.input, "utf-8");
-  } catch {
-    rawInput = "";
-    console.error(`extract: input not found at ${args.input}, rendering empty report`);
+  } catch (e) {
+    // Fail-fast: an unreadable input file means the agent run was
+    // interrupted or skipped; we MUST NOT silently render a clean
+    // empty report (that would let a broken upstream look fine to
+    // maintainers). Surface as a non-zero exit so the workflow step
+    // fails; the session jsonl is still uploaded by safe-outputs.
+    console.error(`extract: FAIL — input not readable at ${args.input}: ${(e as Error).message}`);
+    process.exit(2);
+  }
+  if (rawInput.trim().length === 0) {
+    console.error(`extract: FAIL — input file ${args.input} is empty (agent produced no output)`);
+    process.exit(3);
   }
   const parsed = parseRun(rawInput);
+  if (parsed.steps.length === 0 && parsed.malformedMarkers.length === 0 && parsed.overall === "unknown") {
+    console.error(
+      `extract: FAIL — parsed input contained no STEP markers, no RUN_DONE, no malformed-marker traces (input length ${rawInput.length})`,
+    );
+    process.exit(4);
+  }
   const md = renderMarkdown(parsed, args);
   writeFileSync(args.output, md, "utf-8");
   console.error(
-    `extract: wrote ${md.length} bytes to ${args.output} (${parsed.steps.length} steps, ${parsed.sediments.length} sediments, overall=${parsed.overall})`,
+    `extract: wrote ${md.length} bytes to ${args.output} (${parsed.steps.length} steps, ${parsed.sediments.length} sediments, ${parsed.malformedMarkers.length} malformed, overall=${parsed.overall})`,
   );
 }
 

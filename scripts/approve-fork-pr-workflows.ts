@@ -136,6 +136,17 @@ export function isPendingApprovalRun(run: WorkflowRun, pull: PullRequest): boole
   );
 }
 
+export function hasPullApprovalStateDrift(initialPull: PullRequest, latestPull: PullRequest): boolean {
+  return (
+    latestPull.state !== "open" ||
+    Boolean(latestPull.draft) ||
+    latestPull.head.sha !== initialPull.head.sha ||
+    latestPull.base.sha !== initialPull.base.sha ||
+    latestPull.base.ref !== initialPull.base.ref ||
+    latestPull.head.repo?.full_name !== initialPull.head.repo?.full_name
+  );
+}
+
 function isSamePullRequest(candidate: WorkflowRun["pull_requests"][number] | PullRequest, pull: PullRequest): boolean {
   return (
     candidate.number === pull.number &&
@@ -287,20 +298,7 @@ async function main(): Promise<void> {
   }
 
   const latestPull = await github<PullRequest>(`/repos/${repo}/pulls/${prNumber}`);
-  if (latestPull.state !== "open") {
-    console.log(`Skipping PR #${prNumber}: state changed to ${latestPull.state} while evaluating workflow approval.`);
-    return;
-  }
-  if (latestPull.draft) {
-    console.log(`Skipping PR #${prNumber}: PR became draft while evaluating workflow approval.`);
-    return;
-  }
-  if (
-    latestPull.head.sha !== pull.head.sha ||
-    latestPull.base.sha !== pull.base.sha ||
-    latestPull.base.ref !== pull.base.ref ||
-    latestPull.head.repo?.full_name !== pull.head.repo?.full_name
-  ) {
+  if (hasPullApprovalStateDrift(pull, latestPull)) {
     console.log(`Skipping PR #${prNumber}: PR head/base changed while evaluating workflow approval.`);
     return;
   }
@@ -317,6 +315,12 @@ async function main(): Promise<void> {
 
   if (pendingRuns.length === 0) {
     console.log(`No action_required pull_request workflow runs found for PR #${prNumber} at ${pull.head.sha}.`);
+    return;
+  }
+
+  const approvalPull = await github<PullRequest>(`/repos/${repo}/pulls/${prNumber}`);
+  if (hasPullApprovalStateDrift(pull, approvalPull)) {
+    console.log(`Skipping PR #${prNumber}: PR changed while waiting for approvable workflow runs.`);
     return;
   }
 

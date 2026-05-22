@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  hasPullApprovalStateDrift,
   isDeniedChangedPath,
   isPendingApprovalRun,
   runTargetsPullRequest,
@@ -244,6 +245,41 @@ test("runTargetsPullRequest approves only the run that GitHub associates to the 
 
   assert.equal(runTargetsPullRequest(currentPrRun, pull, [pull, otherPull]), true);
   assert.equal(runTargetsPullRequest(otherPrRun, pull, [pull, otherPull]), false);
+});
+
+test("hasPullApprovalStateDrift stays false only while the PR remains open on the same head/base tuple", () => {
+  const pull = {
+    number: 2683,
+    state: "open",
+    changed_files: 1,
+    head: {
+      sha: "734076155c44e569304856590019cea54506fdab",
+      repo: { full_name: "someone/open-design" },
+    },
+    base: {
+      ref: "main",
+      sha: "4cd93a5c7a7b0db1961c854e55f8e0e6b1b45542",
+      repo: { full_name: "nexu-io/open-design" },
+    },
+  };
+
+  assert.equal(hasPullApprovalStateDrift(pull, pull), false);
+  assert.equal(hasPullApprovalStateDrift(pull, { ...pull, draft: true }), true);
+  assert.equal(hasPullApprovalStateDrift(pull, { ...pull, state: "closed" }), true);
+  assert.equal(
+    hasPullApprovalStateDrift(pull, {
+      ...pull,
+      head: { ...pull.head, sha: "08a88a65482123629ebda5a090c71533bd6b8a88" },
+    }),
+    true,
+  );
+  assert.equal(
+    hasPullApprovalStateDrift(pull, {
+      ...pull,
+      base: { ...pull.base, ref: "release" },
+    }),
+    true,
+  );
 });
 
 test("isDeniedChangedPath blocks common tool config files under allowlisted source trees", () => {

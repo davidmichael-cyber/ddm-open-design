@@ -111,7 +111,8 @@ export function isDeniedChangedPath(path: string): boolean {
     path === "pnpm-workspace.yaml" ||
     path === "flake.nix" ||
     path === "flake.lock" ||
-    /(^|\/)(next|vite|vitest|playwright|astro|postcss|tailwind|eslint|prettier|tsconfig|wrangler|electron-builder)(\.config)?\.[^.]+$/.test(
+    /(^|\/)tsconfig(\.[^.]+)*\.json$/.test(path) ||
+    /(^|\/)(next|vite|vitest|playwright|astro|postcss|tailwind|eslint|prettier|wrangler|electron-builder)(\.config)?\.[^.]+$/.test(
       path,
     ) ||
     path.endsWith("esbuild.config.mjs") ||

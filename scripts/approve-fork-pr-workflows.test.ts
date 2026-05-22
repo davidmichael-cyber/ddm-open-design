@@ -286,6 +286,9 @@ test("isDeniedChangedPath blocks common tool config files under allowlisted sour
   assert.equal(isDeniedChangedPath("apps/web/vitest.config.ts"), true);
   assert.equal(isDeniedChangedPath("apps/web/vite.config.ts"), true);
   assert.equal(isDeniedChangedPath("apps/web/playwright.config.ts"), true);
+  assert.equal(isDeniedChangedPath("apps/web/tsconfig.sidecar.json"), true);
+  assert.equal(isDeniedChangedPath("apps/daemon/tsconfig.tests.json"), true);
+  assert.equal(isDeniedChangedPath("packages/contracts/tsconfig.tests.json"), true);
   assert.equal(isDeniedChangedPath("apps/web/src/app/page.tsx"), false);
 });
 

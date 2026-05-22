@@ -248,7 +248,11 @@ post-steps:
     if: always()
     shell: bash
     env:
-      GH_AW_AGENT_OUTPUT_DIR: /tmp/gh-aw
+      # /tmp/gh-aw/agent-stdio.log is Claude's --debug-file output
+      # (NDJSON stream-json). That's where the STEP markers live.
+      # agent_output.json is the safe-outputs items list — a different
+      # file with envelope {"items":[]}, no agent prose.
+      GH_AW_AGENT_STDIO: /tmp/gh-aw/agent-stdio.log
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       APPROVER: ${{ steps.approver.outputs.login }}
@@ -259,7 +263,7 @@ post-steps:
       mixed_flag=""
       if [ "$MIXED_PR" = "true" ]; then mixed_flag="--mixed-pr"; fi
       node --experimental-strip-types e2e/scripts/agent-pr-explore-extract.ts \
-        --input "${GH_AW_AGENT_OUTPUT_DIR}/agent_output.json" \
+        --input "$GH_AW_AGENT_STDIO" \
         --pr "$PR_NUMBER" \
         --head "$HEAD_SHA" \
         --approver "$APPROVER" \
@@ -282,6 +286,7 @@ safe-outputs:
     max-uploads: 1
     allowed-paths:
       - /tmp/agent-report/
+      - /tmp/gh-aw/agent-stdio.log
       - /tmp/gh-aw/agent_output.json
       - /tmp/od-dev.log
   threat-detection: true

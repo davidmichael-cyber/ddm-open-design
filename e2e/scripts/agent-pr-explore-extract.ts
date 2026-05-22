@@ -135,10 +135,21 @@ function iterateTextBlocks(rawInput: string): string[] {
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
       const parsed: unknown = JSON.parse(trimmed);
+      // Three envelope shapes seen in the wild:
+      //   - top-level array of events (Claude session jsonl assembled)
+      //   - { events: [...] }
+      //   - { items: [...] } — gh-aw's agent_output.json (safe-outputs
+      //     items list). Items there are typed safe-output requests
+      //     and rarely carry STEP markers, but we extract any text
+      //     they happen to contain for resilience against misrouted
+      //     input paths.
+      const wrapped = parsed as { events?: unknown[]; items?: unknown[] };
       const events: unknown[] = Array.isArray(parsed)
         ? parsed
-        : Array.isArray((parsed as { events?: unknown[] }).events)
-        ? ((parsed as { events: unknown[] }).events)
+        : Array.isArray(wrapped.events)
+        ? wrapped.events
+        : Array.isArray(wrapped.items)
+        ? wrapped.items
         : [];
       for (const ev of events) {
         for (const text of extract(ev)) blocks.push(text);
@@ -168,6 +179,78 @@ function appendError(step: Step, reason: string): void {
 
 function makeStep(id: string): Step {
   return { id, title: "", verdict: "", status: "unknown", rawError: "" };
+}
+
+interface SessionStats {
+  assistantTurns: number;
+  outputTokens: number;
+  toolCounts: Map<string, number>;
+}
+
+function collectSessionStats(rawInput: string): SessionStats {
+  const stats: SessionStats = {
+    assistantTurns: 0,
+    outputTokens: 0,
+    toolCounts: new Map<string, number>(),
+  };
+  const trimmed = rawInput.trim();
+  if (!trimmed) return stats;
+  // Stream-json / NDJSON: each line is one event. We iterate and
+  // increment counters; safe to call twice on the same input.
+  const inspect = (ev: unknown): void => {
+    if (!ev || typeof ev !== "object") return;
+    const obj = ev as Record<string, unknown>;
+    if (obj.type === "assistant" || obj.role === "assistant") {
+      stats.assistantTurns += 1;
+    }
+    const msg = obj.message;
+    if (msg && typeof msg === "object") {
+      const m = msg as Record<string, unknown>;
+      const usage = m.usage;
+      if (usage && typeof usage === "object") {
+        const u = usage as Record<string, unknown>;
+        if (typeof u.output_tokens === "number") stats.outputTokens += u.output_tokens;
+      }
+      const content = m.content;
+      if (Array.isArray(content)) {
+        for (const c of content) {
+          if (c && typeof c === "object") {
+            const cc = c as Record<string, unknown>;
+            if (cc.type === "tool_use" && typeof cc.name === "string") {
+              stats.toolCounts.set(cc.name, (stats.toolCounts.get(cc.name) ?? 0) + 1);
+            }
+          }
+        }
+      }
+    }
+  };
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      const wrapped = parsed as { events?: unknown[]; items?: unknown[] };
+      const events: unknown[] = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(wrapped.events)
+        ? wrapped.events
+        : Array.isArray(wrapped.items)
+        ? wrapped.items
+        : [];
+      for (const ev of events) inspect(ev);
+      return stats;
+    } catch {
+      /* fall through to NDJSON */
+    }
+  }
+  for (const line of trimmed.split("\n")) {
+    if (!line) continue;
+    try {
+      inspect(JSON.parse(line));
+    } catch {
+      /* skip */
+    }
+  }
+  return stats;
 }
 
 function parseRun(rawInput: string): ParsedRun {
@@ -302,6 +385,7 @@ function parseRun(rawInput: string): ParsedRun {
     if (!step.verdict) appendError(step, "missing STEP_DONE");
   }
 
+  const stats = collectSessionStats(rawInput);
   return {
     malformedMarkers,
     steps: stepOrder.map((id) => {
@@ -312,9 +396,9 @@ function parseRun(rawInput: string): ParsedRun {
     sediments,
     overall,
     overallRationale,
-    assistantTurns: 0,
-    outputTokens: 0,
-    toolCounts: new Map<string, number>(),
+    assistantTurns: stats.assistantTurns,
+    outputTokens: stats.outputTokens,
+    toolCounts: stats.toolCounts,
   };
 }
 
@@ -411,7 +495,19 @@ function renderMarkdown(parsed: ParsedRun, args: CliArgs): string {
   add("<summary>📊 Run footprint</summary>");
   add("");
   add(`- Steps emitted: ${parsed.steps.length}`);
+  if (parsed.assistantTurns > 0) add(`- Assistant turns: ${parsed.assistantTurns}`);
+  if (parsed.outputTokens > 0) add(`- Output tokens: ${parsed.outputTokens.toLocaleString()}`);
+  if (parsed.toolCounts.size > 0) {
+    const top = [...parsed.toolCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k, v]) => `${k}×${v}`)
+      .join(", ");
+    add(`- Tool calls (top 5): ${top}`);
+  }
   if (parsed.overallRationale) add(`- Overall rationale: ${parsed.overallRationale}`);
+  add(`- Wrapper contract version: v2.1`);
+  add(`- Session log: see uploaded artifact (\`agent-stdio.log\`)`);
   add("</details>");
   add("");
 
@@ -434,7 +530,7 @@ function renderMarkdown(parsed: ParsedRun, args: CliArgs): string {
 
   add("---");
   add(
-    `_Advisory only · never blocks merge · PR #${args.pr} @ \`${args.head.slice(0, 8)}\` · wrapper v2.0 · session jsonl in artifact_`,
+    `_Advisory only · never blocks merge · PR #${args.pr} @ \`${args.head.slice(0, 8)}\` · wrapper v2.1 · session log in artifact_`,
   );
 
   return lines.join("\n") + "\n";

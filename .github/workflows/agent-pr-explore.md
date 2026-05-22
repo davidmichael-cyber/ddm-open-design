@@ -212,6 +212,38 @@ post-steps:
         kill -KILL "$(cat /tmp/od-pid)" 2>/dev/null || true
       fi
 
+  # Resolve the actual environment-approval reviewer for this run.
+  # github.triggering_actor is GitHub's "user who initiated or last
+  # rerun'd the workflow" — for the initial run on a PR push it's the
+  # PR author, not the approver. The Deployments API exposes the
+  # approval reviewer reliably; fall back to triggering_actor only if
+  # the API call fails (e.g. permissions / API drift).
+  - name: Resolve deployment approver
+    id: approver
+    if: always()
+    shell: bash
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.run_id }}
+      FALLBACK: ${{ github.triggering_actor }}
+    run: |
+      set -uo pipefail
+      approver=$(gh api "repos/$REPO/actions/runs/$RUN_ID/approvals" \
+        --jq '.[0].user.login // empty' 2>/dev/null || true)
+      if [ -z "$approver" ]; then
+        echo "::warning::Deployment approvals API empty for run $RUN_ID — falling back to github.triggering_actor"
+        approver="$FALLBACK"
+      fi
+      echo "login=$approver" >> "$GITHUB_OUTPUT"
+
+  # Extract step is now allowed to fail. Previously the
+  # `|| echo "wrapper failed..."` fallback masked extractor crashes
+  # behind a green check; per repo's fail-fast policy and the spec's
+  # § Wire format contract, structural failures must surface, not
+  # silently degrade to a placeholder comment. The session jsonl is
+  # still uploaded via upload-artifact (which runs `if: always()`),
+  # so a failed extract step is fully diagnosable from the artifact.
   - name: Extract verdicts to markdown
     if: always()
     shell: bash
@@ -219,12 +251,10 @@ post-steps:
       GH_AW_AGENT_OUTPUT_DIR: /tmp/gh-aw
       PR_NUMBER: ${{ github.event.pull_request.number }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      # github.triggering_actor — for environment-approval-gated runs,
-      # this is the user who clicked Approve, not the PR author. See
-      # spec § Comment output format for the Approved by contract.
-      APPROVER: ${{ github.triggering_actor }}
+      APPROVER: ${{ steps.approver.outputs.login }}
       MIXED_PR: ${{ steps.surface.outputs.mixed_pr }}
     run: |
+      set -euo pipefail
       mkdir -p /tmp/agent-report
       mixed_flag=""
       if [ "$MIXED_PR" = "true" ]; then mixed_flag="--mixed-pr"; fi
@@ -234,8 +264,7 @@ post-steps:
         --head "$HEAD_SHA" \
         --approver "$APPROVER" \
         --output /tmp/agent-report/comment.md \
-        $mixed_flag \
-      || echo "wrapper failed — see uploaded session jsonl" > /tmp/agent-report/comment.md
+        $mixed_flag
 
 # Safe-outputs: P1-private uses only upload-artifact (the rendered
 # report + the raw session jsonl). The previous draft had a

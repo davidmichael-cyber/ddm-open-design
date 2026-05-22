@@ -224,15 +224,15 @@ function parseRun(rawInput: string): ParsedRun {
           continue;
         }
         step.verdict = payload;
-        if (step.status !== "unknown") {
-          // ensureStep may have set unknown for monotonic violation;
-          // preserve that. Otherwise take the agent-declared status.
-        } else {
+        // Status assignment is **monotonic toward unknown**: once a
+        // structural validation failure has set step.rawError, no
+        // later agent-declared status can move the step out of
+        // "unknown". This preserves the parser's earlier integrity
+        // check (duplicate id / non-monotonic / overflow) even when
+        // the agent goes on to declare its own pass/warning/fail.
+        if (step.rawError === "") {
           step.status = status;
         }
-        // Only ever DOWNGRADE off "unknown" — never overwrite a real
-        // parsing-failure status with the agent's self-reported one.
-        if (step.rawError === "") step.status = status;
         continue;
       }
 

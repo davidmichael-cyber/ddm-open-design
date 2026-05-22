@@ -457,9 +457,14 @@ Mandatory layout, in order:
    **Findings**: F fail · W warning · U unknown · P pass
    ```
 
-   `Approved by` comes from `github.triggering_actor`, which for
-   environment-approval-gated runs is the user who clicked Approve
-   (verified against the GitHub Actions context).
+   `Approved by` comes from the GitHub Deployments API
+   (`GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals` →
+   `[0].user.login`) fetched in a workflow step before the renderer
+   runs. Falls back to `github.triggering_actor` only if the API
+   call returns empty, in which case a workflow warning is emitted.
+   `github.triggering_actor` alone is insufficient because it is the
+   workflow run's initiating user, which on initial runs is the PR
+   author, not the environment approver.
 
    The four counts at the bottom (`fail / warning / unknown / pass`)
    come directly from the agent-declared `<status>` field in each

@@ -2185,7 +2185,10 @@ export function ProjectView({
       persistMessage(assistantMsg);
       if (commentAttachments.length > 0) {
         void patchAttachedStatuses(commentAttachments, 'applying');
-        setAttachedComments([]);
+        const consumedCommentIds = new Set(commentAttachments.map((attachment) => attachment.id));
+        setAttachedComments((current) =>
+          current.filter((comment) => !consumedCommentIds.has(comment.id)),
+        );
       }
       // If this is the first turn, derive a working title from the prompt
       // so the conversation is identifiable in the dropdown without a

@@ -179,6 +179,16 @@ vi.mock('../../src/components/ChatPane', () => ({
         </button>
         <button
           type="button"
+          data-testid="attach-second-comment"
+          onClick={() => {
+            const second = previewComments?.[1];
+            if (second) onAttachComment?.(second);
+          }}
+        >
+          attach second comment
+        </button>
+        <button
+          type="button"
           data-testid="send-message"
           onClick={() =>
             onSend(
@@ -282,6 +292,16 @@ const previewComment: PreviewComment = {
   status: 'open',
   createdAt: 1,
   updatedAt: 1,
+};
+
+const secondPreviewComment: PreviewComment = {
+  ...previewComment,
+  id: 'comment-2',
+  elementId: 'cta',
+  selector: '[data-od-id="cta"]',
+  label: 'CTA',
+  text: 'Start now',
+  note: 'keep this attached',
 };
 
 describe('ProjectView conversation run isolation', () => {
@@ -467,6 +487,46 @@ describe('ProjectView conversation run isolation', () => {
 
     expect(streamViaDaemon).not.toHaveBeenCalled();
     expect(screen.getByTestId('attached-comment-count').textContent).toBe('0');
+  });
+
+  it('keeps newer attached comments when a queued send flushes older comment attachments', async () => {
+    let finishReattach: (() => void) | null = null;
+    let reattachHandlers: { onDone: () => void } | null = null;
+    fetchPreviewComments.mockResolvedValue([previewComment, secondPreviewComment]);
+    reattachDaemonRun.mockImplementation(async (input: unknown) => {
+      reattachHandlers = (input as { handlers: { onDone: () => void } }).handlers;
+      return new Promise<void>((resolve) => {
+        finishReattach = resolve;
+      });
+    });
+
+    renderProjectView();
+
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-a'));
+    await waitFor(() => expect(screen.getByTestId('streaming-state').textContent).toBe('streaming'));
+
+    fireEvent.click(screen.getByTestId('attach-first-comment'));
+    await waitFor(() => expect(screen.getByTestId('attached-comment-count').textContent).toBe('1'));
+    fireEvent.click(screen.getByTestId('send-message'));
+    await waitFor(() => expect(screen.getByTestId('attached-comment-count').textContent).toBe('0'));
+
+    fireEvent.click(screen.getByTestId('attach-second-comment'));
+    await waitFor(() => expect(screen.getByTestId('attached-comment-count').textContent).toBe('1'));
+
+    await act(async () => {
+      reattachHandlers?.onDone();
+      finishReattach?.();
+    });
+
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('attached-comment-count').textContent).toBe('1');
+    expect(streamViaDaemon).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commentAttachments: [
+          expect.objectContaining({ id: previewComment.id }),
+        ],
+      }),
+    );
   });
 
   it('surfaces conversation message load errors and keeps sends disabled until messages load', async () => {

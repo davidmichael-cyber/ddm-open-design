@@ -6809,15 +6809,15 @@ function HtmlViewer({
                     data-testid="inspect-empty-hint-no-targets"
                   >
                     {inspectMode
-                      ? '当前页面还没有可编辑的元素。'
-                      : '当前页面还没有可注释的元素。'}
+                      ? t('chat.inspect.noEditableTargets')
+                      : t('chat.inspect.noCommentTargets')}
                   </div>
                 ) : (
                   <div
                     className="inspect-empty-hint"
                     data-testid="inspect-empty-hint"
                   >
-                    {inspectMode ? '点击画面中的元素编辑样式。' : '点击画面中的元素添加注释。'}
+                    {inspectMode ? t('chat.inspect.editHint') : t('chat.inspect.commentHint')}
                   </div>
                 )}
                 <button

@@ -1491,6 +1491,10 @@ export interface Dict {
   'chat.comments.pinAtCoords': string;
   'chat.comments.capturedItems': string;
   'chat.comments.clear': string;
+  'chat.inspect.noEditableTargets': string;
+  'chat.inspect.noCommentTargets': string;
+  'chat.inspect.editHint': string;
+  'chat.inspect.commentHint': string;
   'chat.conversationsTitle': string;
   'chat.conversationsAria': string;
   'chat.newConversation': string;

@@ -49,6 +49,7 @@ import {
   type WebDeployProviderId,
   type WebUpdateDeployConfigRequest,
   writeProjectTextFile,
+  writeProjectTextFileDetailed,
 } from '../providers/registry';
 import type { ProjectFilePreview } from '../providers/registry';
 import {
@@ -68,7 +69,6 @@ import { buildReactComponentSrcdoc } from '../runtime/react-component';
 import { findHtmlEntriesReferencing } from '../runtime/jsx-module-refs';
 import { buildLazySrcdocTransport, buildSrcdoc, canActivateSrcDocTransport } from '../runtime/srcdoc';
 import {
-  hasTweaksTemplate,
   hasUrlModeBridge,
   htmlNeedsFocusGuard,
   htmlNeedsSandboxShim,
@@ -85,6 +85,7 @@ import type {
   ProjectFile,
 } from '../types';
 import { Icon } from './Icon';
+import { RemixIcon } from './RemixIcon';
 import { Toast } from './Toast';
 import { PaletteTweaks, type PaletteId } from './PaletteTweaks';
 import { PreviewDrawOverlay, type PreviewDrawMode } from './PreviewDrawOverlay';
@@ -98,7 +99,7 @@ import {
   type PreviewCommentSnapshot,
 } from '../comments';
 import { applyPodMemberRemoval } from '../lib/pod-members';
-import { BoardComposerPopover } from './BoardComposerPopover';
+import { AnnotationHoverPopover, BoardComposerPopover } from './BoardComposerPopover';
 import type {
   ChatCommentAttachment,
   PreviewComment,
@@ -441,7 +442,7 @@ function PreviewViewportControls({
         onClick={() => setOpen((value) => !value)}
       >
         <span>{t(activePreset.labelKey)}</span>
-        <Icon name="chevron-down" size={11} />
+        <RemixIcon name="arrow-down-s-line" size={14} />
       </button>
       {open ? (
         <div className="viewer-viewport-menu" id={listboxId} role="listbox" aria-label={t('fileViewer.viewportAria')}>
@@ -615,6 +616,10 @@ interface Props {
   // atomic tab-state update. The React module pointer uses this to jump to the
   // HTML entry that renders a module and drop the dead-end module tab.
   onOpenFileReplacing?: (openName: string, closeName: string) => void;
+  manualEditPortalId?: string;
+  onManualEditModeChange?: (active: boolean) => void;
+  commentPortalId?: string;
+  onCommentModeChange?: (active: boolean) => void;
 }
 
 export function FileViewer({
@@ -632,6 +637,10 @@ export function FileViewer({
   onSendBoardCommentAttachments,
   onFileSaved,
   onOpenFileReplacing,
+  manualEditPortalId,
+  onManualEditModeChange,
+  commentPortalId,
+  onCommentModeChange,
 }: Props) {
   const rendererMatch = artifactRendererRegistry.resolve({
     file,
@@ -669,6 +678,10 @@ export function FileViewer({
         onRemovePreviewComment={onRemovePreviewComment}
         onSendBoardCommentAttachments={onSendBoardCommentAttachments}
         onFileSaved={onFileSaved}
+        manualEditPortalId={manualEditPortalId}
+        onManualEditModeChange={onManualEditModeChange}
+        commentPortalId={commentPortalId}
+        onCommentModeChange={onCommentModeChange}
       />
     );
   }
@@ -883,7 +896,6 @@ export function LiveArtifactViewer({
     [projectId, liveArtifact.artifactId, reloadKey],
   );
   const previewScale = zoom / 100;
-  const previewActive = mode === 'preview';
 
   // Instrument the live-artifact iframe so failed loads — usually a
   // missing artifact file or a stuck `od://` resolver — surface in
@@ -975,27 +987,28 @@ export function LiveArtifactViewer({
       ))(
         <div className="present-wrap chrome-present-wrap" ref={presentWrapRef}>
           <button
-            className="chrome-action chrome-action-secondary present-trigger"
+            className="chrome-action chrome-action-secondary chrome-action-icon present-trigger"
             aria-haspopup="menu"
             aria-expanded={presentMenuOpen}
+            aria-label={t('fileViewer.present')}
+            data-tooltip={t('fileViewer.present')}
+            title={t('fileViewer.present')}
             onClick={() => setPresentMenuOpen((v) => !v)}
           >
-            <Icon name="present" size={13} />
-            <span>{t('fileViewer.present')}</span>
-            <Icon name="chevron-down" size={11} />
+            <RemixIcon name="slideshow-3-line" size={15} />
           </button>
           {presentMenuOpen ? (
             <div className="present-menu" role="menu">
               <button role="menuitem" onClick={presentInThisTab}>
-                <span className="present-icon"><Icon name="eye" size={13} /></span>{' '}
+                <span className="present-icon"><RemixIcon name="eye-line" size={14} /></span>{' '}
                 {t('fileViewer.presentInTab')}
               </button>
               <button role="menuitem" onClick={presentFullscreen}>
-                <span className="present-icon"><Icon name="play" size={13} /></span>{' '}
+                <span className="present-icon"><RemixIcon name="play-line" size={14} /></span>{' '}
                 {t('fileViewer.presentFullscreen')}
               </button>
               <button role="menuitem" onClick={presentNewTab}>
-                <span className="present-icon"><Icon name="share" size={13} /></span>{' '}
+                <span className="present-icon"><RemixIcon name="share-forward-line" size={14} /></span>{' '}
                 {t('fileViewer.presentNewTab')}
               </button>
             </div>
@@ -1019,8 +1032,8 @@ export function LiveArtifactViewer({
             type="button"
             className="icon-only"
             onClick={() => setReloadKey((n) => n + 1)}
-            title={t('fileViewer.reload')}
-            aria-label={t('fileViewer.reloadAria')}
+            title={`${t('fileViewer.reload')} ${t('fileViewer.preview')}`}
+            aria-label={`${t('fileViewer.reloadAria')} ${t('fileViewer.preview')}`}
           >
             <Icon name="reload" size={14} />
           </button>
@@ -1040,15 +1053,15 @@ export function LiveArtifactViewer({
           </div>
           <div
             className="viewer-preview-controls"
-            data-active={previewActive ? 'true' : 'false'}
-            aria-hidden={previewActive ? undefined : true}
+            data-active={mode === 'preview' ? 'true' : 'false'}
+            aria-hidden={mode === 'preview' ? undefined : true}
           >
             <span className="viewer-divider" aria-hidden />
             <PreviewViewportControls
               viewport={previewViewport}
               onViewport={setPreviewViewport}
               t={t}
-              tabIndex={previewActive ? 0 : -1}
+              tabIndex={mode === 'preview' ? 0 : -1}
             />
             <span className="viewer-divider" aria-hidden />
             <button
@@ -1057,7 +1070,7 @@ export function LiveArtifactViewer({
               onClick={() => bumpZoom(-25)}
               title={t('fileViewer.zoomOut')}
               aria-label={t('fileViewer.zoomOut')}
-              tabIndex={previewActive ? 0 : -1}
+              tabIndex={mode === 'preview' ? 0 : -1}
             >
               <Icon name="minus" size={14} />
             </button>
@@ -1066,7 +1079,7 @@ export function LiveArtifactViewer({
               className="viewer-action viewer-zoom-level"
               onClick={() => setZoom(100)}
               title={t('fileViewer.resetZoom')}
-              tabIndex={previewActive ? 0 : -1}
+              tabIndex={mode === 'preview' ? 0 : -1}
             >
               <span style={{ fontVariantNumeric: 'tabular-nums' }}>{zoom}%</span>
             </button>
@@ -1076,7 +1089,7 @@ export function LiveArtifactViewer({
               onClick={() => bumpZoom(25)}
               title={t('fileViewer.zoomIn')}
               aria-label={t('fileViewer.zoomIn')}
-              tabIndex={previewActive ? 0 : -1}
+              tabIndex={mode === 'preview' ? 0 : -1}
             >
               <Icon name="plus" size={14} />
             </button>
@@ -1086,7 +1099,7 @@ export function LiveArtifactViewer({
               href={liveArtifactPreviewUrl(projectId, liveArtifact.artifactId)}
               target="_blank"
               rel="noreferrer noopener"
-              tabIndex={previewActive ? 0 : -1}
+              tabIndex={mode === 'preview' ? 0 : -1}
             >
               {t('fileViewer.open')}
             </a>
@@ -1139,27 +1152,26 @@ export function LiveArtifactViewer({
             action={t('liveArtifact.refresh.failureAction')}
           />
         ) : null}
-        <div
-          className={`live-artifact-preview-layer preview-viewport preview-viewport-${previewViewport}`}
-          data-active={previewActive ? 'true' : 'false'}
-          aria-hidden={previewActive ? undefined : true}
-          style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
-        >
-          <div className="preview-frame-clip">
-            <div style={previewScaleShellStyle(previewViewport, previewScale)}>
-              <PreviewDrawOverlay>
-                <iframe
-                  ref={iframeRef}
-                  data-testid="live-artifact-preview-frame"
-                  title={liveArtifact.title}
-                  sandbox="allow-scripts allow-popups allow-downloads"
-                  src={previewUrl}
-                />
-              </PreviewDrawOverlay>
+        {mode === 'preview' ? (
+          <div
+            className={`live-artifact-preview-layer preview-viewport preview-viewport-${previewViewport}`}
+            style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
+          >
+            <div className="preview-frame-clip">
+              <div style={previewScaleShellStyle(previewViewport, previewScale)}>
+                <PreviewDrawOverlay>
+                  <iframe
+                    ref={iframeRef}
+                    data-testid="live-artifact-preview-frame"
+                    title={liveArtifact.title}
+                    sandbox="allow-scripts allow-popups allow-downloads"
+                    src={previewUrl}
+                  />
+                </PreviewDrawOverlay>
+              </div>
             </div>
           </div>
-        </div>
-        {previewActive ? null : loading ? (
+        ) : loading ? (
           <div className="viewer-empty">{t('fileViewer.loading')}</div>
         ) : mode === 'code' ? (
           <LiveArtifactCodePanel
@@ -1903,11 +1915,6 @@ function commentDisplayLabel(comment: PreviewComment, t: TranslateFn): string {
   return comment.label || comment.elementId;
 }
 
-function commentAvatarInitial(comment: PreviewComment): string {
-  const seed = comment.label || comment.elementId || '?';
-  return seed.charAt(0).toUpperCase();
-}
-
 export function CommentSidePanel({
   comments,
   selectedIds,
@@ -1918,8 +1925,10 @@ export function CommentSidePanel({
   onClearSelection,
   onReply,
   onSendSelected,
+  onCreateComment,
   sending,
   t,
+  composer,
 }: {
   comments: PreviewComment[];
   selectedIds: Set<string>;
@@ -1930,13 +1939,22 @@ export function CommentSidePanel({
   onClearSelection: () => void;
   onReply: (comment: PreviewComment) => void;
   onSendSelected: () => void | Promise<void>;
+  onCreateComment?: (note: string) => boolean | Promise<boolean>;
   sending: boolean;
   t: TranslateFn;
+  composer?: ReactNode;
 }) {
+  const [newCommentDraft, setNewCommentDraft] = useState('');
   const sorted = [...comments].sort((a, b) => b.createdAt - a.createdAt);
   const visibleSelectedIds = new Set(comments.filter((comment) => selectedIds.has(comment.id)).map((comment) => comment.id));
   const selectedCount = visibleSelectedIds.size;
   const commentsLabel = t('chat.tabComments');
+  const canCreateComment = Boolean(onCreateComment) && newCommentDraft.trim().length > 0 && !sending;
+  const submitNewComment = async () => {
+    if (!onCreateComment || !newCommentDraft.trim()) return;
+    const saved = await onCreateComment(newCommentDraft.trim());
+    if (saved) setNewCommentDraft('');
+  };
   if (collapsed) {
     return (
       <button
@@ -1947,7 +1965,7 @@ export function CommentSidePanel({
         title={t('preview.showSidebar', { label: commentsLabel })}
         onClick={() => onCollapsedChange(false)}
       >
-        <Icon name="comment" size={14} />
+        <RemixIcon name="message-3-line" size={15} />
         <span>{commentsLabel}</span>
         {comments.length > 0 ? <strong>{comments.length}</strong> : null}
       </button>
@@ -1958,7 +1976,7 @@ export function CommentSidePanel({
     <aside className="comment-side-panel" data-testid="comment-side-panel" aria-label={commentsLabel}>
       <div className="comment-side-header">
         <div className="comment-side-title">
-          <Icon name="comment" size={14} />
+          <RemixIcon name="message-3-line" size={15} />
           <span>{commentsLabel}</span>
         </div>
         <button
@@ -1986,9 +2004,6 @@ export function CommentSidePanel({
             >
               <div className="comment-side-item-head">
                 <span className="comment-side-author">
-                  <span className="comment-side-avatar" aria-hidden>
-                    {commentAvatarInitial(comment)}
-                  </span>
                   <strong>{commentDisplayLabel(comment, t)}</strong>
                 </span>
                 <span className="comment-side-time">{formatCommentTime(comment.createdAt, t)}</span>
@@ -2031,6 +2046,48 @@ export function CommentSidePanel({
             {sending ? t('chat.comments.sending') : t('chat.comments.sendToChat')}
           </button>
         </div>
+      ) : null}
+      {composer ? <div className="comment-side-composer">{composer}</div> : null}
+      {onCreateComment ? (
+        <form
+          className="comment-side-new-comment"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitNewComment();
+          }}
+        >
+          <textarea
+            value={newCommentDraft}
+            placeholder={t('chat.comments.placeholder')}
+            aria-label={t('chat.comments.placeholder')}
+            onChange={(event) => setNewCommentDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                void submitNewComment();
+              }
+            }}
+          />
+          <div className="comment-side-new-comment-actions">
+            <button
+              type="button"
+              className="comment-side-attach"
+              title={t('chat.attachTitle')}
+              aria-label={t('chat.attachAria')}
+              disabled
+            >
+              <Icon name="attach" size={14} />
+            </button>
+            <button
+              type="submit"
+              className="comment-side-new-comment-send"
+              disabled={!canCreateComment}
+            >
+              <Icon name="arrow-up" size={13} />
+              <span>{sending ? t('chat.comments.sending') : t('chat.send')}</span>
+            </button>
+          </div>
+        </form>
       ) : null}
     </aside>
   );
@@ -2747,6 +2804,7 @@ function CommentPreviewOverlays({
   hoveredPodMemberId,
   activeTarget,
   boardTool,
+  showActivePin = false,
   scale,
   strokePoints,
   onOpenComment,
@@ -2757,6 +2815,7 @@ function CommentPreviewOverlays({
   hoveredPodMemberId: string | null;
   activeTarget: PreviewCommentSnapshot | null;
   boardTool: BoardTool;
+  showActivePin?: boolean;
   scale: number;
   strokePoints: StrokePoint[];
   onOpenComment: (comment: PreviewComment, snapshot: PreviewCommentSnapshot) => void;
@@ -2795,7 +2854,7 @@ function CommentPreviewOverlays({
               title={`${comment.elementId}: ${comment.note}`}
               aria-label={`Open comment for ${comment.elementId}`}
             >
-              {index + 1}
+              C
             </button>
           </div>
         );
@@ -2808,6 +2867,16 @@ function CommentPreviewOverlays({
           hoveredMemberId={hoveredPodMemberId}
         />
       ) : null}
+      {showActivePin && activeTarget ? (
+        <div
+          className="comment-active-pin"
+          style={activeCommentPinStyle(activeTarget, scale)}
+          data-testid="comment-active-pin"
+          aria-hidden="true"
+        >
+          C
+        </div>
+      ) : null}
       {boardTool === 'pod' && strokePoints.length > 1 ? (
         <svg className="board-pod-stroke">
           <polyline
@@ -2817,6 +2886,18 @@ function CommentPreviewOverlays({
       ) : null}
     </div>
   );
+}
+
+function activeCommentPinStyle(target: PreviewCommentSnapshot, scale: number): CSSProperties {
+  const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const anchor = target.hoverPoint ?? {
+    x: target.position.x,
+    y: target.position.y,
+  };
+  return {
+    left: Math.round(anchor.x * safeScale),
+    top: Math.round(anchor.y * safeScale),
+  };
 }
 
 export function CommentTargetOverlay({
@@ -2969,6 +3050,7 @@ function buildPodSnapshot(input: {
     text: snapshot.text,
     position: snapshot.position,
     htmlHint: snapshot.htmlHint,
+    style: snapshot.style,
   }));
   const summary = selected
     .slice(0, 3)
@@ -3151,6 +3233,34 @@ function finiteBridgeInteger(value: unknown): number | undefined {
   return clampBridgeCoordinate(value);
 }
 
+function normalizeAnnotationStyle(input: unknown): PreviewCommentSnapshot['style'] {
+  if (!input || typeof input !== 'object') return undefined;
+  const raw = input as Record<string, unknown>;
+  const style: NonNullable<PreviewCommentSnapshot['style']> = {};
+  for (const key of ANNOTATION_STYLE_KEYS) {
+    const value = raw[key];
+    if (typeof value !== 'string') continue;
+    const trimmed = value.replace(/\s+/g, ' ').trim();
+    if (trimmed) style[key] = trimmed.slice(0, 120);
+  }
+  return Object.keys(style).length > 0 ? style : undefined;
+}
+
+const ANNOTATION_STYLE_KEYS = [
+  'color',
+  'backgroundColor',
+  'fontSize',
+  'fontWeight',
+  'lineHeight',
+  'textAlign',
+  'fontFamily',
+  'paddingTop',
+  'paddingRight',
+  'paddingBottom',
+  'paddingLeft',
+  'borderRadius',
+] as const;
+
 function clampBridgeCoordinate(value: unknown): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
@@ -3314,8 +3424,8 @@ function ReactComponentViewer({
             type="button"
             className="icon-only"
             onClick={() => setReloadKey((n) => n + 1)}
-            title={t('fileViewer.reload')}
-            aria-label={t('fileViewer.reloadAria')}
+            title={`${t('fileViewer.reload')} ${t('fileViewer.preview')}`}
+            aria-label={`${t('fileViewer.reloadAria')} ${t('fileViewer.preview')}`}
           >
             <Icon name="reload" size={14} />
           </button>
@@ -3351,9 +3461,9 @@ function ReactComponentViewer({
                   aria-expanded={shareMenuOpen}
                   onClick={() => setShareMenuOpen((v) => !v)}
                 >
-                  <Icon name="download" size={13} />
+                  <span className="export-action-spacer" aria-hidden />
                   <span>{t('fileViewer.shareLabel')}</span>
-                  <Icon name="chevron-down" size={11} />
+                  <RemixIcon name="arrow-down-s-line" size={14} />
                 </button>
                 {shareMenuOpen ? (
                   <div className="share-menu-popover" role="menu">
@@ -3366,7 +3476,7 @@ function ReactComponentViewer({
                         exportAsJsx(source, exportTitle, sourceExtension);
                       }}
                     >
-                      <span className="share-menu-icon"><Icon name="file-code" size={14} /></span>
+                      <span className="share-menu-icon"><RemixIcon name="file-code-line" size={15} /></span>
                       <span>{t('fileViewer.exportJsx')}</span>
                     </button>
                     <button
@@ -3378,7 +3488,7 @@ function ReactComponentViewer({
                         exportReactComponentAsHtml(source, exportTitle);
                       }}
                     >
-                      <span className="share-menu-icon"><Icon name="file" size={14} /></span>
+                      <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
                       <span>{t('fileViewer.exportReactHtml')}</span>
                     </button>
                     <div className="share-menu-divider" />
@@ -3391,7 +3501,7 @@ function ReactComponentViewer({
                         exportReactComponentAsZip(source, exportTitle, sourceExtension);
                       }}
                     >
-                      <span className="share-menu-icon"><Icon name="download" size={14} /></span>
+                      <span className="share-menu-icon"><RemixIcon name="file-zip-line" size={15} /></span>
                       <span>{t('fileViewer.exportZip')}</span>
                     </button>
                   </div>
@@ -3530,6 +3640,10 @@ function HtmlViewer({
   onRemovePreviewComment,
   onSendBoardCommentAttachments,
   onFileSaved,
+  manualEditPortalId,
+  onManualEditModeChange,
+  commentPortalId,
+  onCommentModeChange,
 }: {
   projectId: string;
   projectKind: TrackingProjectKind;
@@ -3544,6 +3658,10 @@ function HtmlViewer({
   onRemovePreviewComment?: (commentId: string) => Promise<void>;
   onSendBoardCommentAttachments?: (attachments: ChatCommentAttachment[]) => Promise<void> | void;
   onFileSaved?: () => Promise<void> | void;
+  manualEditPortalId?: string;
+  onManualEditModeChange?: (active: boolean) => void;
+  commentPortalId?: string;
+  onCommentModeChange?: (active: boolean) => void;
 }) {
   const t = useT();
   const analytics = useAnalytics();
@@ -3667,8 +3785,6 @@ function HtmlViewer({
   const [inlinedSource, setInlinedSource] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [previewViewport, setPreviewViewport] = useState<PreviewViewportId>('desktop');
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
-  const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false);
   const zoomMenuRef = useRef<HTMLDivElement | null>(null);
   const [presentMenuOpen, setPresentMenuOpen] = useState(false);
@@ -3707,9 +3823,13 @@ function HtmlViewer({
   const [inTabPresent, setInTabPresent] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [boardMode, setBoardMode] = useState(false);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [commentCreateMode, setCommentCreateMode] = useState(false);
   const [boardTool, setBoardTool] = useState<BoardTool>('inspect');
   const [inspectMode, setInspectMode] = useState(false);
   const [palettePopoverOpen, setPalettePopoverOpen] = useState(false);
+  const [manualToolsOpen, setManualToolsOpen] = useState(false);
+  const [agentToolsOpen, setAgentToolsOpen] = useState(false);
   const [selectedPalette, setSelectedPalette] = useState<PaletteId | null>(null);
   const [previewPalette, setPreviewPalette] = useState<PaletteId | null>(null);
   const [drawOverlayOpen, setDrawOverlayOpen] = useState(false);
@@ -3719,6 +3839,8 @@ function HtmlViewer({
   const [manualEditMode, setManualEditModeRaw] = useState(false);
   const [manualEditFrozenSource, setManualEditFrozenSource] = useState<string | null>(null);
   const [manualEditViewportWidth, setManualEditViewportWidth] = useState<number | null>(null);
+  const [manualEditPortalHost, setManualEditPortalHost] = useState<HTMLElement | null>(null);
+  const [commentPortalHost, setCommentPortalHost] = useState<HTMLElement | null>(null);
   const [previewBodyRef, previewBodySize] = usePreviewCanvasSize<HTMLDivElement>();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const urlPreviewIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -3774,6 +3896,58 @@ function HtmlViewer({
       return value;
     });
   }, []);
+  useEffect(() => {
+    onManualEditModeChange?.(manualEditMode);
+  }, [manualEditMode, onManualEditModeChange]);
+  useEffect(() => () => {
+    onManualEditModeChange?.(false);
+  }, [onManualEditModeChange]);
+  useEffect(() => {
+    onCommentModeChange?.(commentPanelOpen);
+  }, [commentPanelOpen, onCommentModeChange]);
+  useEffect(() => () => {
+    onCommentModeChange?.(false);
+  }, [onCommentModeChange]);
+  useEffect(() => {
+    if (!manualEditMode || !manualEditPortalId) {
+      setManualEditPortalHost(null);
+      return;
+    }
+    let cancelled = false;
+    let raf = 0;
+    const findHost = () => {
+      if (cancelled) return;
+      const host = document.getElementById(manualEditPortalId);
+      setManualEditPortalHost(host);
+      if (!host) raf = window.requestAnimationFrame(findHost);
+    };
+    findHost();
+    return () => {
+      cancelled = true;
+      if (raf) window.cancelAnimationFrame(raf);
+      setManualEditPortalHost(null);
+    };
+  }, [manualEditMode, manualEditPortalId]);
+  useEffect(() => {
+    if (!commentPanelOpen || !commentPortalId) {
+      setCommentPortalHost(null);
+      return;
+    }
+    let cancelled = false;
+    let raf = 0;
+    const findHost = () => {
+      if (cancelled) return;
+      const host = document.getElementById(commentPortalId);
+      setCommentPortalHost(host);
+      if (!host) raf = window.requestAnimationFrame(findHost);
+    };
+    findHost();
+    return () => {
+      cancelled = true;
+      if (raf) window.cancelAnimationFrame(raf);
+      setCommentPortalHost(null);
+    };
+  }, [commentPanelOpen, commentPortalId]);
   const capturePreviewScrollPosition = useCallback(() => {
     const host = previewBodyRef.current;
     let frameLeft = 0;
@@ -3899,17 +4073,6 @@ function HtmlViewer({
   const [selectedSideCommentIds, setSelectedSideCommentIds] = useState<Set<string>>(() => new Set());
   const [commentSidePanelCollapsed, setCommentSidePanelCollapsed] = useState(false);
   const [strokePoints, setStrokePoints] = useState<StrokePoint[]>([]);
-  const [tweaksMode, setTweaksMode] = useState(false);
-  const [tweaksAvailable, setTweaksAvailable] = useState(false);
-  // Tracks the `file.name` for which we've already mirrored the artifact's
-  // initial `__edit_mode_available` announcement into `tweaksMode`. Agent-
-  // generated `.twk-panel` artifacts mount their panel visible by default,
-  // so the toolbar toggle should also start ON — otherwise the user has to
-  // click toggle-on → toggle-off to actually hide the panel they're seeing.
-  // We only mirror ONCE per file: subsequent re-emissions (iframe remount
-  // when the user flips render mode by opening Themes, etc.) would otherwise
-  // re-toggle the user's choice.
-  const firstEditModeAvailableSeenForFileRef = useRef<string | null>(null);
   const previewStateKey = `${projectId}:${file.name}`;
   const previewScale = zoom / 100;
 
@@ -4120,10 +4283,6 @@ function HtmlViewer({
   // When we URL-load the iframe directly, skip every in-host inlining /
   // srcDoc-rebuilding step. The browser does the asset resolution itself,
   // which is the whole point of the URL-load path.
-  // Detect the class based tweaks template so we keep the srcDoc path on
-  // first load: the bridge that emits `od:tweaks-available` is only injected
-  // by buildSrcdoc, never on the URL load iframe.
-  const tweaksBridgeRequired = hasTweaksTemplate(source);
   // Auto-fall back to the srcDoc path when the artifact will crash under
   // the URL-load iframe's bare `sandbox="allow-scripts"` — Babel-standalone
   // React prototypes and any HTML that reads Web Storage at mount throw
@@ -4148,7 +4307,6 @@ function HtmlViewer({
     inspectMode,
     paletteActive: palettePopoverOpen || selectedPalette !== null,
     drawMode: drawOverlayOpen,
-    tweaksBridge: tweaksBridgeRequired,
     forceInline: forceInline || needsSandboxShim,
     needsFocusGuard,
   });
@@ -4166,24 +4324,8 @@ function HtmlViewer({
   useEffect(() => {
     setPreviewSrcUrl(basePreviewSrcUrl);
   }, [basePreviewSrcUrl]);
-  // Keep `iframeRef.current` aligned with whichever iframe is currently
-  // visible so the existing postMessage send sites do not need to know that
-  // there are two iframes mounted. Plain `useEffect` (rather than layout)
-  // because all reads of `iframeRef.current` are in async user handlers or
-  // postMessage callbacks, never synchronous during render, and `useEffect`
-  // does not warn under `renderToStaticMarkup`.
   useEffect(() => {
     iframeRef.current = useUrlLoadPreview ? urlPreviewIframeRef.current : srcDocPreviewIframeRef.current;
-  }, [useUrlLoadPreview]);
-  // When the render mode flips, the now-active iframe has already loaded
-  // (its `onLoad` fired when it first mounted, often long before the user
-  // toggled), so we manually re-push the current bridge state instead of
-  // relying on the iframe's load event. `syncBridgeModes` is a closure over
-  // the latest state, so reading it through a ref keeps this effect's deps
-  // honest while still firing the up-to-date sync function.
-  const syncBridgeModesRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    syncBridgeModesRef.current();
   }, [useUrlLoadPreview]);
 
   useEffect(() => {
@@ -4254,7 +4396,7 @@ function HtmlViewer({
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, []);
-  const useLazySrcDocTransport = useUrlLoadPreview || hasLazySrcDocTransport;
+  const useLazySrcDocTransport = !manualEditMode && (useUrlLoadPreview || hasLazySrcDocTransport);
   const srcDocTransportContent = useLazySrcDocTransport ? lazySrcDocTransport : srcDoc;
   const urlTransportSrc = useUrlLoadPreview ? activePreviewSrcUrl : 'about:blank';
   const activateSrcDocTransport = useCallback((target: HTMLIFrameElement | null = srcDocPreviewIframeRef.current) => {
@@ -4271,6 +4413,20 @@ function HtmlViewer({
     activatedSrcDocTransportHtmlRef.current = srcDoc;
     return true;
   }, [srcDoc, useLazySrcDocTransport, useUrlLoadPreview, srcDocShellReady]);
+  const activateLoadedSrcDocTransport = useCallback((target: HTMLIFrameElement | null = srcDocPreviewIframeRef.current) => {
+    if (!canActivateSrcDocTransport({
+      srcDoc,
+      useUrlLoadPreview,
+      useLazySrcDocTransport,
+      shellReady: true,
+      activatedHtml: activatedSrcDocTransportHtmlRef.current,
+    })) return false;
+    const win = target?.contentWindow;
+    if (!win) return false;
+    win.postMessage({ type: 'od:srcdoc-transport-activate', html: srcDoc }, '*');
+    activatedSrcDocTransportHtmlRef.current = srcDoc;
+    return true;
+  }, [srcDoc, useLazySrcDocTransport, useUrlLoadPreview]);
   useEffect(() => {
     if (useUrlLoadPreview) {
       activatedSrcDocTransportHtmlRef.current = null;
@@ -4439,21 +4595,10 @@ function HtmlViewer({
     }, '*');
     win.postMessage({ type: 'od-edit-mode', enabled: manualEditMode }, '*');
     postSelectedManualEditTargetToIframe(manualEditMode ? selectedManualEditTarget?.id ?? null : null, target);
-    // Push the toolbar's current `tweaksMode` to both dialects so the artifact
-    // aligns to host state on every load (including render-mode swaps that
-    // expose a different iframe. e.g. opening the Themes popover). Without
-    // this, an artifact that defaults to `open=true` would re-open on every
-    // swap and visually contradict a toolbar that is currently off.
-    win.postMessage({ type: 'od:tweaks-panel-visible', visible: tweaksMode }, '*');
-    win.postMessage({ type: tweaksMode ? '__activate_edit_mode' : '__deactivate_edit_mode' }, '*');
     win.postMessage({ type: 'od:inspect-mode', enabled: inspectMode }, '*');
     const palette = previewPalette ?? selectedPalette;
     win.postMessage({ type: 'od:palette', palette }, '*');
   }
-  // Keep the ref pointing at the latest `syncBridgeModes` closure so the
-  // render-mode-swap effect above (which can fire before this declaration in
-  // execution order) always calls the up-to-date function.
-  syncBridgeModesRef.current = syncBridgeModes;
 
   useEffect(() => {
     const win = iframeRef.current?.contentWindow;
@@ -4510,6 +4655,7 @@ function HtmlViewer({
             height: clampBridgeCoordinate(item?.position?.height),
           },
           htmlHint: String(item?.htmlHint || ''),
+          style: normalizeAnnotationStyle(item?.style),
           selectionKind: 'element',
           memberCount: undefined,
         });
@@ -4519,80 +4665,6 @@ function HtmlViewer({
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [inspectMode, boardMode, drawClickSelectionMode, file.name, isOurPreviewIframeSource]);
-
-  useEffect(() => {
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    // Send all known dialects so the artifact can pick up whichever it speaks:
-    //  - `od:tweaks-panel-visible` is the bridge protocol used by class-based
-    //    panels emitted from the tweaks skill template (`.tw-panel`).
-    //  - `__activate_edit_mode` / `__deactivate_edit_mode` is the protocol
-    //    agent-generated artifacts use for their own React-mounted `.twk-panel`.
-    // Deps intentionally exclude `srcDoc`: on iframe remount, sync happens via
-    // `syncBridgeModes` (bridge) and the artifact's own
-    // `__edit_mode_available` announcement (postMessage panels).
-    win.postMessage({ type: 'od:tweaks-panel-visible', visible: tweaksMode }, '*');
-    win.postMessage({ type: tweaksMode ? '__activate_edit_mode' : '__deactivate_edit_mode' }, '*');
-  }, [tweaksMode]);
-
-  // Receive tweaks-side state from the iframe. Supports both bridge messages
-  // (`od:tweaks-*` for skill-template artifacts) and the artifact-native
-  // edit-mode protocol (`__edit_mode_*` for agent-generated artifacts). Either
-  // surface controls toolbar availability and mirrors local close into the
-  // toolbar toggle state.
-  useEffect(() => {
-    function onMessage(ev: MessageEvent) {
-      if (!isOurPreviewIframeSource(ev.source)) return;
-      const data = ev.data as { type?: string; available?: boolean; visible?: boolean } | null;
-      if (!data?.type) return;
-      if (data.type === 'od:tweaks-available') {
-        // Scope this to the active iframe only. The hidden srcDoc iframe's
-        // tweaks bridge always evaluates `document.querySelector('.tw-panel')`
-        // and posts `available: false` for agent-protocol (`.twk-panel`)
-        // artifacts that ship no class based panel. Without this guard that
-        // `false` would land after `__edit_mode_available` had already set
-        // `tweaksAvailable = true` and silently disable the toolbar button.
-        // `__edit_mode_*` below stays accepted from either iframe — those
-        // signals carry real artifact intent and must survive render mode
-        // flips.
-        if (ev.source !== iframeRef.current?.contentWindow) return;
-        setTweaksAvailable(!!data.available);
-      } else if (data.type === 'od:tweaks-panel-state') {
-        setTweaksMode(!!data.visible);
-      } else if (data.type === '__edit_mode_available') {
-        setTweaksAvailable(true);
-        // Mirror the artifact's reported default visibility into `tweaksMode`
-        // exactly once per file. Per design-templates/tweaks/SKILL.md the
-        // artifact MAY emit `{ visible: boolean }` on the availability
-        // payload to declare a default-closed panel; if absent we treat it
-        // as default-open because the SDK pattern is `useState(true)` and
-        // omitting `visible` is the backward-compatible signal that the
-        // panel is already on screen. Without this mirror, the toolbar reads
-        // OFF while the panel is clearly visible and the user has to click
-        // toggle-on then toggle-off to actually hide it. Guarded by
-        // `firstEditModeAvailableSeenForFileRef` so a later iframe remount
-        // (Themes popover flipping render mode, etc.) doesn't snap a
-        // user-driven OFF back to ON. `syncBridgeModes` remains the source
-        // of truth on every subsequent load: it pushes the current
-        // `tweaksMode` into the artifact via `__activate_edit_mode` /
-        // `__deactivate_edit_mode` so the artifact tracks the toolbar.
-        if (firstEditModeAvailableSeenForFileRef.current !== file.name) {
-          firstEditModeAvailableSeenForFileRef.current = file.name;
-          setTweaksMode(data.visible !== false);
-        }
-      } else if (data.type === '__edit_mode_dismissed') {
-        setTweaksMode(false);
-      }
-    }
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-    // `file.name` is in the dep list so the handler's `firstEditMode-
-    // AvailableSeenForFileRef.current !== file.name` guard compares against
-    // the currently-displayed file. Without this, the listener would close
-    // over the first-render `file.name`; switching to another `.twk-panel`
-    // artifact would never re-mirror the new artifact's default-open state
-    // because the stale closure's comparison kept matching. PR #1643 review.
-  }, [file.name]);
 
   useEffect(() => {
     setActiveCommentTarget(null);
@@ -4616,10 +4688,6 @@ function HtmlViewer({
     setManualEditError(null);
     manualEditPendingStyleRef.current = null;
     clearManualEditStyleTimer();
-    // Stale tweaks state can carry across files (especially toolbar "on" with
-    // no panel underneath). Reset both and let the iframe bridge re-announce.
-    setTweaksMode(false);
-    setTweaksAvailable(false);
   }, [file.name]);
 
   // Selecting a new file or turning inspect off resets the panel target.
@@ -4667,6 +4735,7 @@ function HtmlViewer({
   useEffect(() => {
     const selectionMode = boardMode || drawClickSelectionMode;
     if (!selectionMode) {
+      setCommentCreateMode(false);
       setActiveCommentTarget((current) => (current ? null : current));
       setHoveredCommentTarget((current) => (current ? null : current));
       setActivePreviewCommentId((current) => (current ? null : current));
@@ -4687,7 +4756,14 @@ function HtmlViewer({
         width: clampBridgeCoordinate(data.position?.width),
         height: clampBridgeCoordinate(data.position?.height),
       },
+      hoverPoint: data.hoverPoint
+        ? {
+            x: clampBridgeCoordinate(data.hoverPoint.x),
+            y: clampBridgeCoordinate(data.hoverPoint.y),
+          }
+        : undefined,
       htmlHint: String(data.htmlHint || ''),
+      style: normalizeAnnotationStyle(data.style),
       selectionKind: data.selectionKind === 'pod' ? 'pod' : 'element',
       memberCount: finiteBridgeInteger(data.memberCount),
       podMembers: Array.isArray(data.podMembers) ? data.podMembers : undefined,
@@ -4732,6 +4808,9 @@ function HtmlViewer({
         if (!snapshot.elementId) return;
         setHoveredCommentTarget(snapshot);
         setLiveCommentTargets((current) => new Map(current).set(snapshot.elementId, snapshot));
+        if (commentPortalHost && boardMode && boardTool === 'inspect') {
+          setActiveCommentTarget((current) => current ?? snapshot);
+        }
         return;
       }
       if (data.type === 'od:comment-target') {
@@ -4790,7 +4869,7 @@ function HtmlViewer({
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [boardMode, drawClickSelectionMode, file.name, isOurPreviewIframeSource, previewComments]);
+  }, [boardMode, boardTool, commentPortalHost, drawClickSelectionMode, file.name, isOurPreviewIframeSource, previewComments]);
 
   useEffect(() => {
     if (!manualEditMode) {
@@ -4822,6 +4901,14 @@ function HtmlViewer({
       }
       if (data.type === 'od-edit-select') {
         void selectManualEditTarget(data.target);
+        return;
+      }
+      if (data.type === 'od-edit-text-commit') {
+        void applyManualEdit({
+          id: String(data.id),
+          kind: 'set-text',
+          value: String(data.value),
+        }, 'Edit text');
         return;
       }
     }
@@ -4969,11 +5056,13 @@ function HtmlViewer({
         baseSource,
         'The file changed outside manual edit mode. Refreshing before applying manual edits.',
       ))) return false;
-      const saved = await writeProjectTextFile(projectId, file.name, result.source, {
+      const saved = await writeProjectTextFileDetailed(projectId, file.name, result.source, {
         artifactManifest: file.artifactManifest,
       });
-      if (!saved) {
-        setManualEditError('Could not save the edited file.');
+      if (!saved.ok) {
+        setManualEditError(
+          `Could not save the edited file${saved.status ? ` (${saved.status}${saved.code ? ` ${saved.code}` : ''})` : ''}: ${saved.message}`,
+        );
         return false;
       }
       const entry: ManualEditHistoryEntry = {
@@ -4993,9 +5082,15 @@ function HtmlViewer({
       setManualEditHistory((current) => [entry, ...current]);
       setManualEditUndone([]);
       setManualEditDraft((current) => ({ ...current, fullSource: result.source }));
+      if (patch.kind === 'set-text') {
+        setSelectedManualEditTarget((current) => current?.id === patch.id
+          ? { ...current, text: patch.value, fields: { ...current.fields, text: patch.value } }
+          : current);
+      }
       if (patch.kind === 'set-style') {
         reconcileManualEditStyleSave(patch.id, patch.styles, result.source);
       }
+      setManualEditError(null);
       await onFileSaved?.();
       return true;
     } finally {
@@ -5267,23 +5362,6 @@ function HtmlViewer({
   }, [presentMenuOpen]);
 
   useEffect(() => {
-    if (!modeMenuOpen) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (!modeMenuRef.current) return;
-      if (!modeMenuRef.current.contains(e.target as Node)) setModeMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setModeMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [modeMenuOpen]);
-
-  useEffect(() => {
     if (!zoomMenuOpen) return;
     const onDocClick = (e: MouseEvent) => {
       if (!zoomMenuRef.current) return;
@@ -5299,6 +5377,24 @@ function HtmlViewer({
       document.removeEventListener('keydown', onKey);
     };
   }, [zoomMenuOpen]);
+
+  useEffect(() => {
+    if (!manualToolsOpen && !agentToolsOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('.artifact-tool-menu-anchor')) return;
+      closeArtifactToolMenus();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeArtifactToolMenus();
+    };
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [manualToolsOpen, agentToolsOpen]);
 
   useEffect(() => {
     if (!shareMenuOpen) return;
@@ -5560,13 +5656,21 @@ function HtmlViewer({
   function selectMode(nextMode: 'preview' | 'source') {
     if (nextMode === 'source') setDrawOverlayOpen(false);
     setMode(nextMode);
-    setModeMenuOpen(false);
   }
 
   function activateBoard(nextTool?: BoardTool) {
     setMode('preview');
     setBoardMode(true);
     if (nextTool) setBoardTool(nextTool);
+  }
+
+  function activateBoardPicker(nextTool: BoardTool) {
+    clearBoardComposer();
+    fireArtifactToolbarClick(nextTool === 'pod' ? 'pods' : 'comment');
+    setCommentPanelOpen(false);
+    setCommentCreateMode(false);
+    activateBoard(nextTool);
+    setAgentToolsOpen(false);
   }
 
   function clearBoardComposer() {
@@ -5577,6 +5681,145 @@ function HtmlViewer({
     setCommentDraft('');
     setQueuedBoardNotes([]);
     setStrokePoints([]);
+  }
+
+  function closeArtifactToolMenus() {
+    setManualToolsOpen(false);
+    setAgentToolsOpen(false);
+  }
+
+  function activatePaletteTool() {
+    fireArtifactToolbarClick('tweaks');
+    setPalettePopoverOpen((v) => !v);
+    setManualToolsOpen(false);
+    setAgentToolsOpen(false);
+  }
+
+  function activateDrawTool() {
+    fireArtifactToolbarClick('draw');
+    const next = !drawOverlayOpen;
+    if (!next) {
+      setDrawOverlayOpen(false);
+      setAgentToolsOpen(false);
+      return;
+    }
+    const activateDraw = () => {
+      setCommentPanelOpen(false);
+      setCommentCreateMode(false);
+      setBoardMode(false);
+      clearBoardComposer();
+      setInspectMode(false);
+      setDrawOverlayMode('draw');
+      setMode('preview');
+      setDrawOverlayOpen(true);
+      closeArtifactToolMenus();
+    };
+    if (manualEditMode) {
+      void exitManualEditModeAfterFlush().then((ok) => {
+        if (ok) activateDraw();
+      });
+      return;
+    }
+    activateDraw();
+  }
+
+  function activateCommentTool() {
+    fireArtifactToolbarClick('comment');
+    capturePreviewScrollPosition();
+    if (boardMode && !commentCreateMode && boardTool === 'inspect') {
+      setBoardMode(false);
+      setCommentCreateMode(false);
+      clearBoardComposer();
+      setAgentToolsOpen(false);
+      return;
+    }
+    const activateComment = () => {
+      setCommentPanelOpen(false);
+      setCommentCreateMode(false);
+      clearBoardComposer();
+      setInspectMode(false);
+      setDrawOverlayOpen(false);
+      setMode('preview');
+      activateBoard('inspect');
+      closeArtifactToolMenus();
+    };
+    if (manualEditMode) {
+      void exitManualEditModeAfterFlush().then((ok) => {
+        if (ok) activateComment();
+      });
+      return;
+    }
+    activateComment();
+  }
+
+  function activateCommentCreateTool() {
+    fireArtifactToolbarClick('comment');
+    capturePreviewScrollPosition();
+    if (boardMode && commentCreateMode) {
+      setBoardMode(false);
+      setCommentCreateMode(false);
+      setCommentPanelOpen(false);
+      clearBoardComposer();
+      closeArtifactToolMenus();
+      return;
+    }
+    const activateCommentCreate = () => {
+      setCommentPanelOpen(true);
+      setCommentSidePanelCollapsed(false);
+      setCommentCreateMode(true);
+      clearBoardComposer();
+      setInspectMode(false);
+      setDrawOverlayOpen(false);
+      setMode('preview');
+      activateBoard('inspect');
+      closeArtifactToolMenus();
+    };
+    if (manualEditMode) {
+      void exitManualEditModeAfterFlush().then((ok) => {
+        if (ok) activateCommentCreate();
+      });
+      return;
+    }
+    activateCommentCreate();
+  }
+
+  function activateInspectTool() {
+    fireArtifactToolbarClick('inspect');
+    setInspectMode((v) => {
+      const next = !v;
+      if (next) {
+        setCommentPanelOpen(false);
+        setCommentCreateMode(false);
+        setBoardMode(false);
+        clearBoardComposer();
+        setManualEditMode(false);
+        setDrawOverlayOpen(false);
+        setOpenHintBox(true);
+        setMode('preview');
+      }
+      return next;
+    });
+    closeArtifactToolMenus();
+  }
+
+  function activateManualEditTool() {
+    fireArtifactToolbarClick('edit');
+    capturePreviewScrollPosition();
+    if (!manualEditMode) {
+      setCommentPanelOpen(false);
+      setCommentCreateMode(false);
+      setBoardMode(false);
+      clearBoardComposer();
+      setInspectMode(false);
+      setDrawOverlayOpen(false);
+      setMode('preview');
+      setManualEditViewportWidth(previewBodyRef.current?.clientWidth ?? null);
+      setManualEditMode(true);
+      closeArtifactToolMenus();
+      return;
+    }
+    closeArtifactToolMenus();
+    void exitManualEditModeAfterFlush();
   }
 
   function queueCurrentDraft() {
@@ -5616,6 +5859,36 @@ function HtmlViewer({
     if (saved) {
       clearBoardComposer();
       setCommentSavedToast(isFreePin ? t('chat.comments.pinSavedToast') : t('chat.comments.savedToast'));
+    }
+  }
+
+  async function savePanelComment(note: string) {
+    if (!onSavePreviewComment) return false;
+    const cleanNote = note.trim();
+    if (!cleanNote) return false;
+    const idSeed = Date.now().toString(36);
+    const target: PreviewCommentTarget = activeCommentTarget
+      ? targetFromSnapshot(activeCommentTarget)
+      : {
+          filePath: file.name,
+          elementId: `file-comment-${idSeed}-${Math.floor(Math.random() * 1e6).toString(36)}`,
+          selector: 'html',
+          label: file.name,
+          text: '',
+          position: { x: 0, y: 0, width: 0, height: 0 },
+          htmlHint: '',
+          selectionKind: 'element',
+        };
+    setSendingBoardBatch(true);
+    try {
+      const saved = await onSavePreviewComment(target, cleanNote, false);
+      if (saved) {
+        setCommentSavedToast(t('chat.comments.savedToast'));
+        if (activeCommentTarget) clearBoardComposer();
+      }
+      return Boolean(saved);
+    } finally {
+      setSendingBoardBatch(false);
     }
   }
 
@@ -5745,56 +6018,180 @@ function HtmlViewer({
   };
   const boardAvailable = mode === 'preview' && source !== null;
   const showPreviewToolbarControls = mode === 'preview';
+  const manualEditPanel = manualEditMode ? (
+    <ManualEditPanel
+      targets={manualEditTargets}
+      selectedTarget={selectedManualEditTarget}
+      draft={manualEditDraft}
+      history={manualEditHistory}
+      error={manualEditError}
+      canUndo={manualEditHistory.length > 0}
+      canRedo={manualEditUndone.length > 0}
+      busy={manualEditSaving}
+      pageStylesEnabled={manualEditPageStylesEnabled}
+      onSelectTarget={selectManualEditTarget}
+      onDraftChange={setManualEditDraft}
+      onStyleChange={(id, styles, label) => {
+        void handleManualEditStyleChange(id, styles, label);
+      }}
+      onInvalidStyle={cancelManualEditPendingStyles}
+      onApplyPatch={(patch, label) => {
+        void applyManualEdit(patch, label);
+      }}
+      onError={setManualEditError}
+      onClearSelection={() => {
+        void clearManualEditTargetSelection();
+      }}
+      onExit={() => {
+        void exitManualEditModeAfterFlush();
+      }}
+      onCancelDraft={() => {
+        if (selectedManualEditTarget) selectManualEditTarget(selectedManualEditTarget);
+      }}
+      onUndo={() => {
+        void undoManualEdit();
+      }}
+      onRedo={() => {
+        void redoManualEdit();
+      }}
+      onPickImage={async (pickedFile) => {
+        const result = await uploadProjectFiles(projectId, [pickedFile]);
+        const uploaded = result.uploaded[0];
+        if (!uploaded?.path) {
+          setManualEditError(result.error ?? t('manualEdit.uploadImageFailed'));
+          return null;
+        }
+        setManualEditError(null);
+        return toOwnerRelativePath(file.name, uploaded.path);
+      }}
+    />
+  ) : null;
+  const commentComposer = boardMode && activeCommentTarget ? (
+    <BoardComposerPopover
+      target={activeCommentTarget}
+      existing={visibleSideComments.find((comment) => comment.elementId === activeCommentTarget.elementId) ?? null}
+      draft={commentDraft}
+      notes={queuedBoardNotes}
+      onDraft={setCommentDraft}
+      onAddDraft={queueCurrentDraft}
+      onRemoveQueuedNote={(index) =>
+        setQueuedBoardNotes((current) => current.filter((_, currentIndex) => currentIndex !== index))
+      }
+      onClose={clearBoardComposer}
+      onSaveComment={savePersistentComment}
+      onSendBatch={sendBoardBatch}
+      onRemove={async (commentId) => {
+        if (!onRemovePreviewComment) return;
+        await onRemovePreviewComment(commentId);
+        clearBoardComposer();
+      }}
+      onRemoveMember={(elementId) => {
+        setActiveCommentTarget((current) => {
+          const { next, shouldClose } = applyPodMemberRemoval(current, elementId);
+          if (shouldClose) clearBoardComposer();
+          return next;
+        });
+        setHoveredPodMemberId((current) => (current === elementId ? null : current));
+      }}
+      onHoverMember={setHoveredPodMemberId}
+      sending={sendingBoardBatch || streaming}
+      t={t}
+      scale={overlayPreviewScale}
+      docked={false}
+    />
+  ) : null;
+  const commentSidePanel = commentPanelOpen ? (
+    <CommentSidePanel
+      comments={visibleSideComments}
+      selectedIds={selectedSideCommentIds}
+      collapsed={commentPortalHost ? false : commentSidePanelCollapsed}
+      onCollapsedChange={setCommentSidePanelCollapsed}
+      onClose={() => {
+        setCommentPanelOpen(false);
+        setCommentSidePanelCollapsed(false);
+        clearBoardComposer();
+      }}
+      onToggleSelect={(commentId) => {
+        setSelectedSideCommentIds((current) => {
+          const next = new Set(current);
+          if (next.has(commentId)) next.delete(commentId);
+          else next.add(commentId);
+          return next;
+        });
+      }}
+      onClearSelection={() => setSelectedSideCommentIds(new Set())}
+      onReply={(comment) => {
+        // Reply == edit on a flat-thread model: prefill the
+        // popover with the existing note so the user sees and
+        // mutates the current text. Save runs through the
+        // same upsert path; matching project/conv/file/element
+        // updates note in place rather than creating a new row.
+        const snapshot = liveSnapshotForComment(comment, liveCommentTargets) ?? {
+          filePath: comment.filePath,
+          elementId: comment.elementId,
+          selector: comment.selector,
+          label: comment.label,
+          text: comment.text,
+          position: comment.position,
+          htmlHint: comment.htmlHint,
+          style: comment.style,
+          selectionKind: comment.selectionKind ?? 'element',
+          memberCount: comment.memberCount,
+          podMembers: comment.podMembers,
+        };
+        setActiveCommentTarget(snapshot);
+        setHoveredCommentTarget(snapshot);
+        setActivePreviewCommentId(comment.id);
+        setCommentDraft(comment.note);
+        setQueuedBoardNotes([]);
+        setBoardMode(true);
+        setCommentCreateMode(true);
+        setCommentPanelOpen(true);
+        setCommentSidePanelCollapsed(false);
+      }}
+      onSendSelected={async () => {
+        if (!onSendBoardCommentAttachments) return;
+        const selected = visibleSideComments.filter(
+          (comment) => selectedSideCommentIds.has(comment.id),
+        );
+        if (selected.length === 0) return;
+        setSendingBoardBatch(true);
+        try {
+          await onSendBoardCommentAttachments(commentsToAttachments(selected));
+          setSelectedSideCommentIds(new Set());
+        } finally {
+          setSendingBoardBatch(false);
+        }
+      }}
+      onCreateComment={savePanelComment}
+      sending={sendingBoardBatch || streaming}
+      t={t}
+      composer={null}
+    />
+  ) : null;
 
   return (
     <div className="viewer html-viewer">
       <div className="viewer-toolbar">
         <div className="viewer-toolbar-left">
-          <button
-            type="button"
-            className="icon-only"
-            onClick={() => {
-              fireArtifactToolbarClick('reload');
-              setReloadKey((n) => n + 1);
-            }}
-            title={t('fileViewer.reload')}
-            aria-label={t('fileViewer.reloadAria')}
-          >
-            <Icon name="reload" size={14} />
-          </button>
-          <div className="viewer-mode-menu" ref={modeMenuRef}>
-            <button
-              type="button"
-              className="viewer-action viewer-mode-trigger"
-              aria-haspopup="menu"
-              aria-expanded={modeMenuOpen}
-              onClick={() => setModeMenuOpen((v) => !v)}
-            >
-              <span>{mode === 'preview' ? t('fileViewer.preview') : t('fileViewer.source')}</span>
-              <Icon name="chevron-down" size={11} />
-            </button>
-            {modeMenuOpen ? (
-              <div className="viewer-mode-popover" role="menu">
-                {([
-                  ['preview', t('fileViewer.preview')],
-                  ['source', t('fileViewer.source')],
-                ] as const).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={`viewer-mode-menu-item${mode === id ? ' active' : ''}`}
-                    role="menuitem"
-                    onClick={() => {
-                      fireArtifactToolbarClick(id);
-                      selectMode(id);
-                    }}
-                  >
-                    <span>{label}</span>
-                    {mode === id ? <Icon name="check" size={13} /> : null}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+          <div className="viewer-mode-segmented" role="group" aria-label="View mode">
+            {([
+              ['preview', t('fileViewer.preview')],
+              ['source', t('fileViewer.source')],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`viewer-mode-segment${mode === id ? ' active' : ''}`}
+                aria-pressed={mode === id}
+                onClick={() => {
+                  fireArtifactToolbarClick(id);
+                  selectMode(id);
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           {showPreviewToolbarControls ? (
             <>
@@ -5804,44 +6201,6 @@ function HtmlViewer({
                 onViewport={setPreviewViewport}
                 t={t}
               />
-              <span className="viewer-divider" aria-hidden />
-              <div className="zoom-menu" ref={zoomMenuRef}>
-                <button
-                  type="button"
-                  className="viewer-action zoom-trigger"
-                  aria-haspopup="menu"
-                  aria-expanded={zoomMenuOpen}
-                  onClick={() => {
-                    fireArtifactToolbarClick('zoom_level_dropdown');
-                    setZoomMenuOpen((v) => !v);
-                  }}
-                  style={{ minWidth: 64 }}
-                >
-                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{zoom}%</span>
-                  <Icon name="chevron-down" size={11} />
-                </button>
-                {zoomMenuOpen ? (
-                  <div className="zoom-menu-popover" role="menu">
-                    {[50, 75, 100, 125, 150, 200].map((level) => (
-                      <button
-                        key={level}
-                        type="button"
-                        className={`zoom-menu-item${zoom === level ? ' active' : ''}`}
-                        role="menuitem"
-                        onClick={() => {
-                          setZoom(level);
-                          setZoomMenuOpen(false);
-                        }}
-                      >
-                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{level}%</span>
-                        {zoom === level ? (
-                          <Icon name="check" size={13} />
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
             </>
           ) : null}
           {showPreviewToolbarControls && effectiveDeck ? (
@@ -5880,38 +6239,114 @@ function HtmlViewer({
               </button>
             </span>
           ) : null}
-          <button
-            type="button"
-            className={`viewer-toggle${tweaksMode ? ' on' : ''}`}
-            title={tweaksAvailable ? t('fileViewer.tweaks') : t('fileViewer.tweaksUnavailable')}
-            aria-pressed={tweaksMode}
-            disabled={!tweaksAvailable}
-            data-coming-soon={!tweaksAvailable ? 'true' : undefined}
-            onClick={() => setTweaksMode((v) => !v)}
-          >
-            <Icon name="tweaks" size={13} />
-            <span>{t('fileViewer.tweaks')}</span>
-            <span className="switch" aria-hidden />
-          </button>
         </div>
         <div className="viewer-toolbar-actions">
           {showPreviewToolbarControls ? (
             <>
-              <div className="palette-tweaks-anchor">
+              <div className="artifact-tool-menu-anchor">
                 <button
                   type="button"
-                  className={`viewer-action${selectedPalette || palettePopoverOpen ? ' active' : ''}`}
-                  data-testid="palette-tweaks-toggle"
-                  title="Themes"
-                  aria-haspopup="dialog"
-                  aria-expanded={palettePopoverOpen}
+                  className={`viewer-action viewer-action-icon viewer-comment-toggle${boardMode && !commentCreateMode && boardTool === 'inspect' ? ' active' : ''}`}
+                  data-testid="board-mode-toggle"
+                  data-tooltip={t('fileViewer.comment')}
+                  title={t('fileViewer.comment')}
+                  aria-label={t('fileViewer.comment')}
+                  aria-pressed={boardMode && !commentCreateMode && boardTool === 'inspect'}
+                  onClick={activateCommentTool}
+                >
+                  <RemixIcon name="chat-new-line" size={15} />
+                  {boardMode && !commentCreateMode && boardTool === 'inspect' ? <span className="viewer-action-active-dot" aria-hidden /> : null}
+                </button>
+              </div>
+              <button
+                type="button"
+                className={`viewer-action viewer-action-icon viewer-comment-toggle${boardMode && commentCreateMode ? ' active' : ''}`}
+                data-testid="comment-panel-toggle"
+                data-tooltip={t('chat.tabComments')}
+                title={t('chat.tabComments')}
+                aria-label={t('chat.tabComments')}
+                aria-pressed={boardMode && commentCreateMode}
+                onClick={activateCommentCreateTool}
+              >
+                <RemixIcon name="message-3-line" size={15} />
+                {boardMode && commentCreateMode ? <span className="viewer-action-active-dot" aria-hidden /> : null}
+              </button>
+              <button
+                className={`viewer-action viewer-action-icon${manualEditMode ? ' active' : ''}`}
+                type="button"
+                data-testid="manual-edit-mode-toggle"
+                data-tooltip="Edit"
+                title="Edit"
+                aria-label="Edit"
+                aria-pressed={manualEditMode}
+                onClick={activateManualEditTool}
+              >
+                <RemixIcon name="edit-line" size={15} />
+              </button>
+              <div className="artifact-tool-menu-anchor">
+                <button
+                  type="button"
+                  className={`viewer-action viewer-action-icon artifact-tool-menu-trigger${drawOverlayOpen ? ' active' : ''}`}
+                  aria-haspopup="menu"
+                  aria-expanded={agentToolsOpen}
+                  aria-label="More annotation tools"
+                  data-tooltip="More"
+                  title="More"
                   onClick={() => {
-                    fireArtifactToolbarClick('tweaks');
-                    setPalettePopoverOpen((v) => !v);
+                    setAgentToolsOpen((v) => !v);
+                    setManualToolsOpen(false);
+                    setPalettePopoverOpen(false);
                   }}
                 >
-                  <Icon name="paint-bucket" size={13} />
-                  <span>Themes</span>
+                  <RemixIcon name="more-2-fill" size={16} />
+                </button>
+                {agentToolsOpen ? (
+                  <div className="artifact-tool-menu" role="menu" aria-label="More annotation tools">
+                    <button
+                      className={`artifact-tool-menu-item${boardMode && boardTool === 'pod' ? ' active' : ''}`}
+                      type="button"
+                      title="Draw a region annotation"
+                      role="menuitem"
+                      aria-label="Region"
+                      aria-pressed={boardMode && boardTool === 'pod'}
+                      onClick={() => activateBoardPicker('pod')}
+                    >
+                      <RemixIcon name="focus-3-line" size={15} />
+                      <span>Region</span>
+                    </button>
+                    <button
+                      className={`artifact-tool-menu-item${drawOverlayOpen ? ' active' : ''}`}
+                      type="button"
+                      data-testid="draw-overlay-toggle"
+                      title="Sketch on screenshot"
+                      role="menuitem"
+                      aria-pressed={drawOverlayOpen}
+                      onClick={activateDrawTool}
+                    >
+                      <RemixIcon name="mark-pen-line" size={15} />
+                      <span>Sketch on screenshot</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+              <div className="artifact-tool-menu-anchor">
+                <button
+                  type="button"
+                  className={`viewer-action viewer-action-icon artifact-tool-menu-trigger${
+                    selectedPalette || palettePopoverOpen || inspectMode ? ' active' : ''
+                  }`}
+                  aria-haspopup="menu"
+                  aria-expanded={manualToolsOpen}
+                  aria-label="Manual"
+                  data-tooltip="Manual"
+                  title="Manual"
+                  onClick={() => {
+                    setManualToolsOpen((v) => !v);
+                    setAgentToolsOpen(false);
+                    setPalettePopoverOpen(false);
+                  }}
+                >
+                  <RemixIcon name="pencil-ruler-line" size={15} />
                   {selectedPalette ? (
                     <span
                       className="palette-tweaks-badge"
@@ -5927,6 +6362,49 @@ function HtmlViewer({
                     />
                   ) : null}
                 </button>
+                {manualToolsOpen ? (
+                  <div className="artifact-tool-menu" role="menu" aria-label="Manual tools">
+                    <button
+                      type="button"
+                      className={`artifact-tool-menu-item${selectedPalette || palettePopoverOpen ? ' active' : ''}`}
+                      data-testid="palette-tweaks-toggle"
+                      title="Palette"
+                      role="menuitem"
+                      aria-haspopup="dialog"
+                      aria-expanded={palettePopoverOpen}
+                      onClick={activatePaletteTool}
+                    >
+                      <Icon name="palette" size={13} />
+                      <span>Palette</span>
+                      {selectedPalette ? (
+                        <span
+                          className="palette-tweaks-badge"
+                          aria-hidden
+                          style={{
+                            backgroundColor:
+                              selectedPalette === 'coral' ? '#ff5a3c' :
+                              selectedPalette === 'electric' ? '#7c3aed' :
+                              selectedPalette === 'acid-forest' ? '#16a34a' :
+                              selectedPalette === 'risograph' ? '#e11d48' :
+                              '#0a0a0a',
+                          }}
+                        />
+                      ) : null}
+                    </button>
+                    <button
+                      className={`artifact-tool-menu-item${inspectMode ? ' active' : ''}`}
+                      type="button"
+                      data-testid="inspect-mode-toggle"
+                      title="Inspect style"
+                      role="menuitem"
+                      aria-pressed={inspectMode}
+                      onClick={activateInspectTool}
+                    >
+                      <Icon name="tweaks" size={13} />
+                      <span>Inspect style</span>
+                    </button>
+                  </div>
+                ) : null}
                 <PaletteTweaks
                   open={palettePopoverOpen}
                   selected={selectedPalette}
@@ -5957,154 +6435,71 @@ function HtmlViewer({
                   onClose={() => setPalettePopoverOpen(false)}
                 />
               </div>
-              <button
-                className={`viewer-action${drawOverlayOpen ? ' active' : ''}`}
-                type="button"
-                data-testid="draw-overlay-toggle"
-                title={t('fileViewer.draw')}
-                aria-pressed={drawOverlayOpen}
-                onClick={() => {
-                  fireArtifactToolbarClick('draw');
-                  const next = !drawOverlayOpen;
-                  if (!next) {
-                    setDrawOverlayOpen(false);
-                    return;
-                  }
-                  const activateDraw = () => {
-                    setBoardMode(false);
-                    clearBoardComposer();
-                    setInspectMode(false);
-                    setDrawOverlayMode('draw');
-                    setMode('preview');
-                    setDrawOverlayOpen(true);
-                  };
-                  if (manualEditMode) {
-                    void exitManualEditModeAfterFlush().then((ok) => {
-                      if (ok) activateDraw();
-                    });
-                    return;
-                  }
-                  activateDraw();
-                }}
-              >
-                <Icon name="draw" size={13} />
-                <span>{t('fileViewer.draw')}</span>
-              </button>
+              {source !== null && mode === 'preview' ? (
+                <div className="zoom-menu viewer-toolbar-zoom" ref={zoomMenuRef}>
+                  <button
+                    type="button"
+                    className="viewer-action zoom-trigger"
+                    aria-haspopup="menu"
+                    aria-expanded={zoomMenuOpen}
+                    onClick={() => {
+                      fireArtifactToolbarClick('zoom_level_dropdown');
+                      setZoomMenuOpen((v) => !v);
+                    }}
+                  >
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{zoom}%</span>
+                  </button>
+                  {zoomMenuOpen ? (
+                    <div className="zoom-menu-popover" role="menu">
+                      {[50, 75, 100, 125, 150, 200].map((level) => (
+                        <button
+                          key={level}
+                          type="button"
+                          className={`zoom-menu-item${zoom === level ? ' active' : ''}`}
+                          role="menuitem"
+                          onClick={() => {
+                            setZoom(level);
+                            setZoomMenuOpen(false);
+                          }}
+                        >
+                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{level}%</span>
+                          {zoom === level ? (
+                            <Icon name="check" size={13} />
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           ) : null}
-          <button
-            type="button"
-            className={`viewer-action viewer-comment-toggle${boardMode ? ' active' : ''}`}
-            data-testid="board-mode-toggle"
-            title={t('fileViewer.comment')}
-            aria-pressed={boardMode}
-            onClick={() => {
-              fireArtifactToolbarClick('comment');
-              capturePreviewScrollPosition();
-              if (boardMode) {
-                setBoardMode(false);
-                clearBoardComposer();
-                return;
-              }
-              const activateComment = () => {
-                clearBoardComposer();
-                setInspectMode(false);
-                setDrawOverlayOpen(false);
-                setMode('preview');
-                activateBoard(boardTool);
-              };
-              if (manualEditMode) {
-                void exitManualEditModeAfterFlush().then((ok) => {
-                  if (ok) activateComment();
-                });
-                return;
-              }
-              activateComment();
-            }}
-          >
-            <Icon name="comment" size={13} />
-            <span>{t('fileViewer.comment')}</span>
-          </button>
-          {boardMode ? (
+          {!showPreviewToolbarControls ? (
             <>
               <button
-                className={`viewer-action${boardTool === 'inspect' ? ' active' : ''}`}
                 type="button"
-                data-testid="comment-mode-toggle"
-                title="Pick one element"
-                aria-label="Picker"
-                aria-pressed={boardTool === 'inspect'}
-                onClick={() => activateBoard('inspect')}
+                className={`viewer-action viewer-comment-toggle${boardMode && !commentCreateMode && boardTool === 'inspect' ? ' active' : ''}`}
+                data-testid="board-mode-toggle"
+                title={t('fileViewer.comment')}
+                aria-pressed={boardMode && !commentCreateMode && boardTool === 'inspect'}
+                onClick={activateCommentTool}
               >
-                <Icon name="edit" size={13} />
-                <span>Picker</span>
+                <RemixIcon name="chat-new-line" size={14} />
+                <span>{t('fileViewer.comment')}</span>
               </button>
               <button
-                className={`viewer-action${boardTool === 'pod' ? ' active' : ''}`}
                 type="button"
-                title="Draw a pod selection"
-                aria-label="Pods"
-                aria-pressed={boardTool === 'pod'}
-                onClick={() => {
-                  fireArtifactToolbarClick('pods');
-                  activateBoard('pod');
-                }}
+                className={`viewer-action viewer-comment-toggle${boardMode && commentCreateMode ? ' active' : ''}`}
+                data-testid="comment-panel-toggle"
+                title={t('chat.tabComments')}
+                aria-pressed={boardMode && commentCreateMode}
+                onClick={activateCommentCreateTool}
               >
-                <Icon name="draw" size={13} />
-                <span>Pods</span>
+                <RemixIcon name="message-3-line" size={14} />
+                <span>{t('chat.tabComments')}</span>
               </button>
             </>
           ) : null}
-          <button
-            className={`viewer-action${inspectMode ? ' active' : ''}`}
-            type="button"
-            data-testid="inspect-mode-toggle"
-            title="Inspect"
-            aria-pressed={inspectMode}
-            onClick={() => {
-              fireArtifactToolbarClick('inspect');
-              setInspectMode((v) => {
-                const next = !v;
-                if (next) {
-                  setBoardMode(false);
-                  clearBoardComposer();
-                  setManualEditMode(false);
-                  setDrawOverlayOpen(false);
-                  setOpenHintBox(true);
-                  setMode('preview');
-                }
-                return next;
-              });
-            }}
-          >
-            <Icon name="tweaks" size={13} />
-            <span>Inspect</span>
-          </button>
-          <button
-            className={`viewer-action${manualEditMode ? ' active' : ''}`}
-            type="button"
-            data-testid="manual-edit-mode-toggle"
-            title={t('fileViewer.edit')}
-            aria-pressed={manualEditMode}
-            onClick={() => {
-              fireArtifactToolbarClick('edit');
-              capturePreviewScrollPosition();
-              if (!manualEditMode) {
-                setBoardMode(false);
-                clearBoardComposer();
-                setInspectMode(false);
-                setDrawOverlayOpen(false);
-                setMode('preview');
-                setManualEditViewportWidth(previewBodyRef.current?.clientWidth ?? null);
-                setManualEditMode(true);
-                return;
-              }
-              void exitManualEditModeAfterFlush();
-            }}
-          >
-            <Icon name="edit" size={13} />
-            <span>{t('fileViewer.edit')}</span>
-          </button>
         </div>
       </div>
       {((filePrimaryActions: ReactNode) => (
@@ -6113,30 +6508,31 @@ function HtmlViewer({
           {showPresent ? (
             <div className="present-wrap chrome-present-wrap">
               <button
-                className="chrome-action chrome-action-secondary present-trigger"
+                className="chrome-action chrome-action-secondary chrome-action-icon present-trigger"
                 aria-haspopup="menu"
                 aria-expanded={presentMenuOpen}
+                aria-label={t('fileViewer.present')}
+                data-tooltip={t('fileViewer.present')}
+                title={t('fileViewer.present')}
                 onClick={() => {
                   fireArtifactHeaderClick('present_dropdown');
                   setPresentMenuOpen((v) => !v);
                 }}
               >
-                <Icon name="present" size={13} />
-                <span>{t('fileViewer.present')}</span>
-                <Icon name="chevron-down" size={11} />
+                <RemixIcon name="slideshow-3-line" size={15} />
               </button>
               {presentMenuOpen ? (
                 <div className="present-menu" role="menu">
                   <button role="menuitem" onClick={() => { firePresentPopoverClick('in_this_tab'); presentInThisTab(); }}>
-                    <span className="present-icon"><Icon name="eye" size={13} /></span>{' '}
+                    <span className="present-icon"><RemixIcon name="eye-line" size={14} /></span>{' '}
                     {t('fileViewer.presentInTab')}
                   </button>
                   <button role="menuitem" onClick={() => { firePresentPopoverClick('fullscreen'); presentFullscreen(); }}>
-                    <span className="present-icon"><Icon name="play" size={13} /></span>{' '}
+                    <span className="present-icon"><RemixIcon name="play-line" size={14} /></span>{' '}
                     {t('fileViewer.presentFullscreen')}
                   </button>
                   <button role="menuitem" onClick={() => { firePresentPopoverClick('new_tab'); presentNewTab(); }}>
-                    <span className="present-icon"><Icon name="share" size={13} /></span>{' '}
+                    <span className="present-icon"><RemixIcon name="share-forward-line" size={14} /></span>{' '}
                     {t('fileViewer.presentNewTab')}
                   </button>
                 </div>
@@ -6154,9 +6550,9 @@ function HtmlViewer({
                 aria-expanded={shareMenuOpen}
                 onClick={openExportMenu}
               >
-                <Icon name="download" size={13} />
+                <span className="export-action-spacer" aria-hidden />
                 <span>{t('fileViewer.shareLabel')}</span>
-                <Icon name="chevron-down" size={11} />
+                <RemixIcon name="arrow-down-s-line" size={14} />
               </button>
               {shareMenuOpen ? (
                 <div className="share-menu-popover" role="menu">
@@ -6175,7 +6571,7 @@ function HtmlViewer({
                       }));
                     }}
                   >
-                    <span className="share-menu-icon"><Icon name="file" size={14} /></span>
+                    <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
                     <span>
                       {effectiveDeck
                         ? t('fileViewer.exportPdfAllSlides')
@@ -6201,7 +6597,7 @@ function HtmlViewer({
                       });
                     }}
                   >
-                    <span className="share-menu-icon"><Icon name="present" size={14} /></span>
+                    <span className="share-menu-icon"><RemixIcon name="file-ppt-line" size={15} /></span>
                     <span>{t('fileViewer.exportPptx') + '…'}</span>
                   </button>
                   <div className="share-menu-divider" />
@@ -6219,7 +6615,7 @@ function HtmlViewer({
                       }));
                     }}
                   >
-                    <span className="share-menu-icon"><Icon name="download" size={14} /></span>
+                    <span className="share-menu-icon"><RemixIcon name="file-zip-line" size={15} /></span>
                     <span>{t('fileViewer.exportZip')}</span>
                   </button>
                   <button
@@ -6231,7 +6627,7 @@ function HtmlViewer({
                       fireShareExport('html', () => exportAsHtml(source ?? '', exportTitle));
                     }}
                   >
-                    <span className="share-menu-icon"><Icon name="file-code" size={14} /></span>
+                    <span className="share-menu-icon"><RemixIcon name="file-code-line" size={15} /></span>
                     <span>{t('fileViewer.exportHtml')}</span>
                   </button>
                   {/* Export as Markdown — pass-through download of the
@@ -6249,7 +6645,7 @@ function HtmlViewer({
                       fireShareExport('markdown', () => exportAsMd(source ?? '', exportTitle));
                     }}
                   >
-                    <span className="share-menu-icon"><Icon name="file" size={14} /></span>
+                    <span className="share-menu-icon"><RemixIcon name="file-line" size={15} /></span>
                     <span>{t('fileViewer.exportMd')}</span>
                   </button>
                   {!useUrlLoadPreview ? (
@@ -6275,7 +6671,7 @@ function HtmlViewer({
                         }
                       }}
                     >
-                      <span className="share-menu-icon"><Icon name="image" size={14} /></span>
+                      <span className="share-menu-icon"><RemixIcon name="image-line" size={15} /></span>
                       <span>{t('fileViewer.exportImage')}</span>
                     </button>
                   ) : null}
@@ -6291,7 +6687,7 @@ function HtmlViewer({
                       });
                     }}
                   >
-                    <span className="share-menu-icon"><Icon name="copy" size={14} /></span>
+                    <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
                     <span>
                       {savingTemplate
                         ? t('fileViewer.savingTemplate')
@@ -6317,7 +6713,7 @@ function HtmlViewer({
                         fireShareExport(format, () => openDeployModal(option.id));
                       }}
                     >
-                      <span className="share-menu-icon"><Icon name="upload" size={14} /></span>
+                      <span className="share-menu-icon"><RemixIcon name="upload-cloud-line" size={15} /></span>
                       <span>{deployActionLabelFor(option.id)}</span>
                     </button>
                   ))}
@@ -6335,7 +6731,7 @@ function HtmlViewer({
                         void copyDeployLink(item.url);
                       }}
                     >
-                      <span className="share-menu-icon"><Icon name="copy" size={14} /></span>
+                      <span className="share-menu-icon"><RemixIcon name="file-copy-line" size={15} /></span>
                       <span>{copyDeployMenuLabel(item.providerLabel, item.url)}</span>
                     </button>
                   ))}
@@ -6349,54 +6745,17 @@ function HtmlViewer({
           <div className="viewer-empty">{t('fileViewer.loading')}</div>
         ) : mode === 'preview' ? (
           <div
-            className={`${manualEditMode ? 'manual-edit-workspace' : 'comment-preview-layer'} preview-viewport preview-viewport-${previewViewport}`}
+            className={manualEditMode
+              ? `manual-edit-workspace${manualEditPortalId ? ' manual-edit-workspace-portal' : ''} preview-viewport preview-viewport-${previewViewport}`
+              : [
+                  'comment-preview-layer',
+                  `preview-viewport preview-viewport-${previewViewport}`,
+                ].filter(Boolean).join(' ')}
             style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
           >
-            {manualEditMode ? (
-              <ManualEditPanel
-                targets={manualEditTargets}
-                selectedTarget={selectedManualEditTarget}
-                draft={manualEditDraft}
-                history={manualEditHistory}
-                error={manualEditError}
-                canUndo={manualEditHistory.length > 0}
-                canRedo={manualEditUndone.length > 0}
-                busy={manualEditSaving}
-                pageStylesEnabled={manualEditPageStylesEnabled}
-                onSelectTarget={selectManualEditTarget}
-                onDraftChange={setManualEditDraft}
-                onStyleChange={(id, styles, label) => {
-                  void handleManualEditStyleChange(id, styles, label);
-                }}
-                onInvalidStyle={cancelManualEditPendingStyles}
-                onApplyPatch={(patch, label) => {
-                  void applyManualEdit(patch, label);
-                }}
-                onError={setManualEditError}
-                onClearSelection={() => {
-                  void clearManualEditTargetSelection();
-                }}
-                onCancelDraft={() => {
-                  if (selectedManualEditTarget) selectManualEditTarget(selectedManualEditTarget);
-                }}
-                onUndo={() => {
-                  void undoManualEdit();
-                }}
-                onRedo={() => {
-                  void redoManualEdit();
-                }}
-                onPickImage={async (pickedFile) => {
-                  const result = await uploadProjectFiles(projectId, [pickedFile]);
-                  const uploaded = result.uploaded[0];
-                  if (!uploaded?.path) {
-                    setManualEditError(result.error ?? t('manualEdit.uploadImageFailed'));
-                    return null;
-                  }
-                  setManualEditError(null);
-                  return toOwnerRelativePath(file.name, uploaded.path);
-                }}
-              />
-            ) : null}
+            {manualEditPortalHost && manualEditPanel
+              ? createPortal(manualEditPanel, manualEditPortalHost)
+              : manualEditPanel}
             <div className={manualEditMode ? 'manual-edit-canvas' : 'comment-frame-clip'}>
               <div
                 style={
@@ -6486,7 +6845,7 @@ function HtmlViewer({
                           activatedSrcDocTransportHtmlRef.current = null;
                         }
                         if (useLazySrcDocTransport) setSrcDocShellReady(true);
-                        activateSrcDocTransport(frame);
+                        activateLoadedSrcDocTransport(frame);
                         dcViewportRestoreAtRef.current = Date.now();
                         frame?.contentWindow?.postMessage({
                           type: '__dc_set_viewport',
@@ -6503,12 +6862,13 @@ function HtmlViewer({
             </div>
             {(boardMode || drawClickSelectionMode) ? (
               <CommentPreviewOverlays
-                comments={boardMode ? visibleSideComments : []}
+                comments={commentCreateMode ? visibleSideComments : []}
                 liveTargets={liveCommentTargets}
                 hoveredTarget={hoveredCommentTarget}
                 hoveredPodMemberId={hoveredPodMemberId}
                 activeTarget={activeCommentTarget}
                 boardTool={boardTool}
+                showActivePin={commentCreateMode}
                 scale={overlayPreviewScale}
                 strokePoints={strokePoints}
                 onOpenComment={(comment, snapshot) => {
@@ -6538,100 +6898,13 @@ function HtmlViewer({
                 />
               </div>
             ) : null}
-            {boardMode && activeCommentTarget ? (
-              <BoardComposerPopover
-                target={activeCommentTarget}
-                existing={visibleSideComments.find((comment) => comment.elementId === activeCommentTarget.elementId) ?? null}
-                draft={commentDraft}
-                notes={queuedBoardNotes}
-                onDraft={setCommentDraft}
-                onAddDraft={queueCurrentDraft}
-                onRemoveQueuedNote={(index) =>
-                  setQueuedBoardNotes((current) => current.filter((_, currentIndex) => currentIndex !== index))
-                }
-                onClose={clearBoardComposer}
-                onSaveComment={savePersistentComment}
-                onSendBatch={sendBoardBatch}
-                onRemove={async (commentId) => {
-                  if (!onRemovePreviewComment) return;
-                  await onRemovePreviewComment(commentId);
-                  clearBoardComposer();
-                }}
-                onRemoveMember={(elementId) => {
-                  setActiveCommentTarget((current) => {
-                    const { next, shouldClose } = applyPodMemberRemoval(current, elementId);
-                    if (shouldClose) clearBoardComposer();
-                    return next;
-                  });
-                  setHoveredPodMemberId((current) => (current === elementId ? null : current));
-                }}
-                onHoverMember={setHoveredPodMemberId}
-                sending={sendingBoardBatch || streaming}
-                t={t}
-              />
+            {commentComposer}
+            {boardMode && !commentCreateMode && hoveredCommentTarget && (!activeCommentTarget || commentPortalHost) ? (
+              <AnnotationHoverPopover target={hoveredCommentTarget} scale={overlayPreviewScale} />
             ) : null}
-            {boardMode ? (
-              <CommentSidePanel
-                comments={visibleSideComments}
-                selectedIds={selectedSideCommentIds}
-                collapsed={commentSidePanelCollapsed}
-                onCollapsedChange={setCommentSidePanelCollapsed}
-                onClose={() => {
-                  setBoardMode(false);
-                  setCommentSidePanelCollapsed(false);
-                  clearBoardComposer();
-                }}
-                onToggleSelect={(commentId) => {
-                  setSelectedSideCommentIds((current) => {
-                    const next = new Set(current);
-                    if (next.has(commentId)) next.delete(commentId);
-                    else next.add(commentId);
-                    return next;
-                  });
-                }}
-                onClearSelection={() => setSelectedSideCommentIds(new Set())}
-                onReply={(comment) => {
-                  // Reply == edit on a flat-thread model: prefill the
-                  // popover with the existing note so the user sees and
-                  // mutates the current text. Save runs through the
-                  // same upsert path; matching project/conv/file/element
-                  // updates note in place rather than creating a new row.
-                  const snapshot = liveSnapshotForComment(comment, liveCommentTargets) ?? {
-                    filePath: comment.filePath,
-                    elementId: comment.elementId,
-                    selector: comment.selector,
-                    label: comment.label,
-                    text: comment.text,
-                    position: comment.position,
-                    htmlHint: comment.htmlHint,
-                    selectionKind: comment.selectionKind ?? 'element',
-                    memberCount: comment.memberCount,
-                    podMembers: comment.podMembers,
-                  };
-                  setActiveCommentTarget(snapshot);
-                  setHoveredCommentTarget(snapshot);
-                  setActivePreviewCommentId(comment.id);
-                  setCommentDraft(comment.note);
-                  setQueuedBoardNotes([]);
-                }}
-                onSendSelected={async () => {
-                  if (!onSendBoardCommentAttachments) return;
-                  const selected = visibleSideComments.filter(
-                    (comment) => selectedSideCommentIds.has(comment.id),
-                  );
-                  if (selected.length === 0) return;
-                  setSendingBoardBatch(true);
-                  try {
-                    await onSendBoardCommentAttachments(commentsToAttachments(selected));
-                    setSelectedSideCommentIds(new Set());
-                  } finally {
-                    setSendingBoardBatch(false);
-                  }
-                }}
-                sending={sendingBoardBatch || streaming}
-                t={t}
-              />
-            ) : null}
+            {commentPortalHost && commentSidePanel
+              ? createPortal(commentSidePanel, commentPortalHost)
+              : commentSidePanel}
             {inspectMode && activeInspectTarget ? (
               <InspectPanel
                 target={activeInspectTarget}
@@ -6681,7 +6954,7 @@ function HtmlViewer({
                 and bails — clicks no-op silently. The static copy made
                 this look broken; the empty-state copy explains what's
                 missing and how to fix it. Mirrored across Inspect and
-                Picker because the failure surface is identical.
+                element-pick annotation mode because the failure surface is identical.
             */}
             {(inspectMode || (boardMode && boardTool === 'inspect'))
               && openHintBox
@@ -6689,7 +6962,7 @@ function HtmlViewer({
               && !activeCommentTarget ? (
               <div
                 className={`inspect-empty-hint-container${
-                  boardMode && !commentSidePanelCollapsed ? ' comment-side-panel-open' : ''
+                  commentPanelOpen && !commentSidePanelCollapsed ? ' comment-side-panel-open' : ''
                 }`}
                 data-testid="inspect-empty-hint-container"
               >
@@ -6698,18 +6971,16 @@ function HtmlViewer({
                     className="inspect-empty-hint"
                     data-testid="inspect-empty-hint-no-targets"
                   >
-                    This artifact has no <code>data-od-id</code>{' '}
-                    annotations yet — ask the agent to add them to the
-                    sections you want to{' '}
-                    {inspectMode ? 'inspect' : 'comment on'}.
+                    {inspectMode
+                      ? t('chat.inspect.noEditableTargets')
+                      : t('chat.inspect.noCommentTargets')}
                   </div>
                 ) : (
                   <div
                     className="inspect-empty-hint"
                     data-testid="inspect-empty-hint"
                   >
-                    Click any element with <code>data-od-id</code> to{' '}
-                    {inspectMode ? 'tune its style' : 'leave a comment'}.
+                    {inspectMode ? t('chat.inspect.editHint') : t('chat.inspect.commentHint')}
                   </div>
                 )}
                 <button

@@ -22,6 +22,28 @@ vi.mock('../../src/components/ManualEditPanel', async (importOriginal) => {
 
 import { FileViewer } from '../../src/components/FileViewer';
 
+function openManualTools() {
+  if (!screen.queryByRole('menu', { name: 'Manual tools' })) {
+    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+  }
+}
+
+function openAgentTools() {
+  if (!screen.queryByRole('menu', { name: 'More annotation tools' })) {
+    fireEvent.click(screen.getByRole('button', { name: 'More annotation tools' }));
+  }
+}
+
+function clickManualTool(testId: string) {
+  openManualTools();
+  fireEvent.click(screen.getByTestId(testId));
+}
+
+function clickAgentTool(testId: string) {
+  openAgentTools();
+  fireEvent.click(screen.getByTestId(testId));
+}
+
 afterEach(() => {
   cleanup();
   panelState.props = null;
@@ -63,17 +85,19 @@ describe('FileViewer manual edit history regressions', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
+    clickManualTool('manual-edit-mode-toggle');
     await waitFor(() => expect(panelState.props).not.toBeNull());
 
     act(() => {
       panelState.props?.onStyleChange?.('hero', { color: '#ef4444' }, 'Style: Hero');
     });
-    fireEvent.click(screen.getByTestId('draw-overlay-toggle'));
+    clickAgentTool('draw-overlay-toggle');
 
     await waitFor(() => expect(savedSources).toHaveLength(1));
     expect(savedSources[0]).toContain('rgb(239, 68, 68)');
+    openManualTools();
     expect(screen.getByTestId('manual-edit-mode-toggle').getAttribute('aria-pressed')).toBe('true');
+    openAgentTools();
     expect(screen.getByTestId('draw-overlay-toggle').getAttribute('aria-pressed')).toBe('false');
 
     await act(async () => {
@@ -84,7 +108,11 @@ describe('FileViewer manual edit history regressions', () => {
       await saveResponse;
     });
 
-    await waitFor(() => expect(screen.getByTestId('manual-edit-mode-toggle').getAttribute('aria-pressed')).toBe('false'));
+    await waitFor(() => {
+      openManualTools();
+      expect(screen.getByTestId('manual-edit-mode-toggle').getAttribute('aria-pressed')).toBe('false');
+    });
+    openAgentTools();
     expect(screen.getByTestId('draw-overlay-toggle').getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -122,7 +150,7 @@ describe('FileViewer manual edit history regressions', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('manual-edit-mode-toggle'));
+    clickManualTool('manual-edit-mode-toggle');
     await waitFor(() => expect(panelState.props).not.toBeNull());
 
     act(() => {

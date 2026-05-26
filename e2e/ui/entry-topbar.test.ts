@@ -23,6 +23,8 @@ async function gotoEntryHome(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((key) => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
     window.localStorage.setItem(
       key,
       JSON.stringify({
@@ -41,7 +43,7 @@ test.beforeEach(async ({ page }) => {
     );
   }, STORAGE_KEY);
 
-  await page.route('https://api.github.com/repos/nexu-io/open-design', async (route) => {
+  await page.route('**/api/github/open-design', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -107,7 +109,7 @@ test('home topbar shows the new entry chips and links', async ({ page }) => {
   await expect(star).toBeVisible();
   await expect(star).toHaveAttribute('href', 'https://github.com/nexu-io/open-design');
   await expect(star).toContainText('Star');
-  await expect(star).toContainText(/[0-9]/);
+  await expect(star).toContainText('51.6K');
 
   const discord = page.getByTestId('entry-discord-badge');
   await expect(discord).toBeVisible();

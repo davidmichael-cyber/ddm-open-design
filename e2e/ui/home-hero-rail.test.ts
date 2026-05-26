@@ -291,7 +291,7 @@ test.beforeEach(async ({ page }) => {
     window.localStorage.setItem(key, JSON.stringify(value));
   }, { key: STORAGE_KEY, value: HOME_CONFIG });
 
-  await page.route('https://api.github.com/repos/nexu-io/open-design', async (route) => {
+  await page.route('**/api/github/open-design', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -373,6 +373,7 @@ test.beforeEach(async ({ page }) => {
 test('home hero rail shows the current creation chips and More shortcuts', async ({ page }) => {
   await gotoEntryHome(page);
 
+  await expect(page.getByTestId('entry-star-badge')).toContainText('51.6K');
   await expect(page.getByTestId('home-hero-type-tabs')).toBeVisible();
   for (const id of ['prototype', 'live-artifact', 'deck', 'image', 'video', 'hyperframes', 'audio']) {
     await expect(page.getByTestId(`home-hero-rail-${id}`)).toBeVisible();

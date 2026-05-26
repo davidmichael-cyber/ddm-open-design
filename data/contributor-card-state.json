@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-26T13:04:45.333Z",
+  "generatedAt": "2026-05-26T13:05:58.194Z",
   "contributors": {
     "1115052994": {
       "lastAnnouncedTier": "spark",
@@ -1855,8 +1855,8 @@
     },
     "ashleytheash": {
       "lastAnnouncedTier": "signal",
-      "lastKnownScore": 55,
-      "lastCheckedAt": "2026-05-26T12:59:22.472Z",
+      "lastKnownScore": 60,
+      "lastCheckedAt": "2026-05-26T13:05:58.194Z",
       "scoreVersion": "weighted-v1",
       "lastAnnouncedAt": "2026-05-26T12:49:58.672Z"
     }

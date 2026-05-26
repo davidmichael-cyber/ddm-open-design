@@ -278,22 +278,7 @@ pnpm tools-dev start
 
 <br/>
 
-## ⚡ Contributing — 全自动化开源协作
-
-> **在大多数开源项目里，你的 PR 可能等几周才被看一眼。在 Open Design，从你提交 Issue 到代码合入 main，整个流程以分钟计。**
-
-我们用 Agent 驱动了整条贡献者管线——不是象征性的 bot 回复，而是真正的自动分类、自动实现、自动 Review、自动合入：
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/nexu-io/open-design/chore/zh-cn-readme-trim-byok-fallback/docs/assets/ai-maintainer-architecture.png" alt="AI Maintainer Architecture — 从 GitHub 事件到智能合入的全链路自动化" width="100%" />
-</p>
-
-| 传统开源项目 | Open Design |
-|---|---|
-| Issue 石沉大海，数周无人问津 | **分钟级 Agent 响应**，每条有价值的反馈都会被处理 |
-| PR 排队等 maintainer 有空 | **符合标准即自动合入**，你的代码一定会出现在 main |
-| 贡献门槛高，需要深度了解架构 | **Plugin / Design System / 文档翻译**都算贡献，[`good-first-issue`](https://github.com/nexu-io/open-design/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) 随时等你 |
-| 贡献后无人知晓 | **50K+ star 项目 Contributor 身份**，写在你的 GitHub Profile |
+## 🤝 Contributing
 
 ### 如何开始？
 

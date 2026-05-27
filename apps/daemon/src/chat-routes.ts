@@ -1251,12 +1251,15 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
       ? byokImageModel
       : undefined;
 
+    const proxyDispatcher = proxyDispatcherRequestInit();
+
     const toolCtx: BYOKToolContext = {
       projectRoot: ctx.paths.PROJECT_ROOT,
       projectsRoot: ctx.paths.PROJECTS_DIR,
       projectId,
       upstreamApiKey: apiKey,
       upstreamBaseUrl: effectiveBaseUrl,
+      requestInit: proxyDispatcher.requestInit,
       // Spread-conditional because tsconfig's exactOptionalPropertyTypes
       // forbids `field: undefined` on an optional slot. The byok-tools
       // executor reads `ctx.defaultImageModel` with `isSenseAudioImageModel`
@@ -1430,8 +1433,6 @@ export function registerChatRoutes(app: Express, ctx: RegisterChatRoutesDeps) {
 
     const sse = createSseResponse(res);
     sse.send('start', { model });
-    const proxyDispatcher = proxyDispatcherRequestInit();
-
     // SenseAudio's gateway issues one API key that works for both
     // /v1/chat/completions and the image / TTS surfaces. Mirror the
     // BYOK key into media-config so the CLI agent path (`od media

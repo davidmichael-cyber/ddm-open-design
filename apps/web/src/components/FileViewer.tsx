@@ -4552,21 +4552,23 @@ function HtmlViewer({
     activateSrcDocTransport();
   }, [activateSrcDocTransport, useUrlLoadPreview]);
   
-  // Re-activate srcDoc transport when exiting manual edit mode to ensure
-  // the preview renders correctly when switching from Edit to Draw mode.
-  // Without this, the preview can remain blank because the frozen source
-  // is cleared but the iframe content is not refreshed.
+  // Leaving Manual Edit swaps the iframe from a fully materialized srcDoc
+  // document back to the lazy transport shell. Remount the shell before
+  // activation; posting into the old edit document can mark the new HTML as
+  // activated, then React replaces the iframe with an empty shell and the
+  // dedupe check suppresses the real activation.
   const prevManualEditModeRef = useRef(manualEditMode);
   useEffect(() => {
     const wasInEditMode = prevManualEditModeRef.current;
     const isNowInEditMode = manualEditMode;
     prevManualEditModeRef.current = isNowInEditMode;
-    
-    // When exiting edit mode (was true, now false), re-activate the transport
+
     if (wasInEditMode && !isNowInEditMode && !useUrlLoadPreview) {
-      activateSrcDocTransport();
+      activatedSrcDocTransportHtmlRef.current = null;
+      setSrcDocShellReady(false);
+      setSrcDocTransportResetKey((key) => key + 1);
     }
-  }, [manualEditMode, useUrlLoadPreview, activateSrcDocTransport]);
+  }, [manualEditMode, useUrlLoadPreview]);
   
   useEffect(() => {
     restorePreviewScrollPosition();

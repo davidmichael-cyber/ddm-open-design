@@ -106,6 +106,35 @@ describe('FileViewer manual edit history regressions', () => {
     expect(screen.getByTestId('draw-overlay-toggle').getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('remounts the srcDoc iframe when closing manual edit on a srcDoc-only preview', async () => {
+    const source = '<!doctype html><html><body><script>localStorage.getItem("od");</script><main data-od-id="hero">Hero</main></body></html>';
+
+    render(
+      <FileViewer projectId="project-1" projectKind="prototype" file={htmlPreviewFile()}
+        liveHtml={source}
+      />,
+    );
+
+    clickManualTool('manual-edit-mode-toggle');
+    await waitFor(() => expect(panelState.props).not.toBeNull());
+
+    const editFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+    expect(editFrame.getAttribute('data-od-render-mode')).toBe('srcdoc');
+    expect(editFrame.srcdoc).toContain('data-od-edit-bridge');
+
+    act(() => {
+      panelState.props?.onExit?.();
+    });
+
+    await waitFor(() => {
+      const previewFrame = screen.getByTestId('artifact-preview-frame') as HTMLIFrameElement;
+      expect(previewFrame).not.toBe(editFrame);
+      expect(previewFrame.getAttribute('data-od-render-mode')).toBe('srcdoc');
+      expect(previewFrame.srcdoc).toContain('Hero');
+      expect(previewFrame.srcdoc).not.toContain('data-od-edit-bridge');
+    });
+  });
+
   it('uses the undone source snapshot for a follow-up edit after undo', async () => {
     const initialSource = '<!doctype html><html><body><h1 data-od-id="hero" style="color: #111111">Hero</h1></body></html>';
     let persistedSource = initialSource;

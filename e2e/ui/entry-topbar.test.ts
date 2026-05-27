@@ -23,6 +23,8 @@ async function gotoEntryHome(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((key) => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
     window.localStorage.setItem(
       key,
       JSON.stringify({
@@ -30,18 +32,18 @@ test.beforeEach(async ({ page }) => {
         apiKey: '',
         baseUrl: 'https://api.anthropic.com',
         model: 'claude-sonnet-4-5',
-        agentId: 'amr',
+        agentId: 'codex',
         skillId: null,
         designSystemId: null,
         onboardingCompleted: true,
-        agentModels: { amr: { model: 'default', reasoning: 'default' } },
+        agentModels: { codex: { model: 'default', reasoning: 'default' } },
         privacyDecisionAt: 1,
         telemetry: { metrics: false, content: false, artifactManifest: false },
       }),
     );
   }, STORAGE_KEY);
 
-  await page.route('https://api.github.com/repos/nexu-io/open-design', async (route) => {
+  await page.route('**/api/github/open-design', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -54,20 +56,20 @@ test.beforeEach(async ({ page }) => {
       json: {
         agents: [
           {
-            id: 'amr',
-            name: 'AMR (vela)',
-            bin: 'vela',
-            available: true,
-            version: '0.1.0',
-            path: '/usr/local/bin/vela',
-            models: [{ id: 'default', label: 'Default' }],
-          },
-          {
             id: 'codex',
             name: 'Codex CLI',
             bin: 'codex',
             available: true,
             version: '0.80.0',
+            path: '/usr/local/bin/codex',
+            models: [{ id: 'default', label: 'Default' }],
+          },
+          {
+            id: 'mock',
+            name: 'Mock Agent',
+            bin: 'mock-agent',
+            available: true,
+            version: 'test',
             models: [{ id: 'default', label: 'Default' }],
           },
         ],
@@ -84,33 +86,15 @@ test.beforeEach(async ({ page }) => {
       json: {
         config: {
           onboardingCompleted: true,
-          agentId: 'amr',
+          agentId: 'codex',
           skillId: null,
           designSystemId: null,
           mode: 'daemon',
-          agentModels: { amr: { model: 'default', reasoning: 'default' } },
+          agentModels: { codex: { model: 'default', reasoning: 'default' } },
           privacyDecisionAt: 1,
           telemetry: { metrics: false, content: false, artifactManifest: false },
         },
       },
-    });
-  });
-
-  await page.route('**/api/integrations/vela/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        loggedIn: true,
-        profile: 'local',
-        configPath: '/tmp/.amr/config.json',
-        user: {
-          id: 'topbar-user',
-          email: 'topbar@example.com',
-          name: 'Topbar User',
-          plan: 'free',
-        },
-      }),
     });
   });
 });
@@ -137,12 +121,12 @@ test('home topbar shows the new entry chips and links', async ({ page }) => {
   await expect(page.getByRole('button', { name: OPEN_SETTINGS_LABEL })).toBeVisible();
 });
 
-test('home topbar execution pill reflects Local CLI AMR default and opens the switcher', async ({ page }) => {
+test('home topbar execution pill reflects the selected Local CLI agent and opens the switcher', async ({ page }) => {
   await gotoEntryHome(page);
 
   const pill = page.getByTestId('inline-model-switcher-chip');
   await expect(pill).toContainText(LOCAL_CLI_LABEL);
-  await expect(pill).toContainText(/AMR/i);
+  await expect(pill).toContainText(/Codex CLI/i);
   await expect(pill).toContainText(/default/i);
 
   await pill.click();
@@ -153,7 +137,59 @@ test('home topbar execution pill reflects Local CLI AMR default and opens the sw
     'aria-selected',
     'true',
   );
-  await expect(page.getByTestId('inline-model-switcher-agent-amr')).toBeVisible();
   await expect(page.getByTestId('inline-model-switcher-agent-codex')).toBeVisible();
-  await expect(popover.getByRole('radio', { name: /^AMR\s+Signed in$/i })).toBeVisible();
+  await expect(page.getByTestId('inline-model-switcher-agent-mock')).toBeVisible();
+  await expect(popover.getByRole('radio', { name: /Codex CLI/i })).toBeVisible();
+});
+
+test('home topbar star and discord badges expose the current external-link contract', async ({ page }) => {
+  await gotoEntryHome(page);
+
+  const star = page.getByTestId('entry-star-badge');
+  await expect(star).toHaveAttribute('target', '_blank');
+  await expect(star).toHaveAttribute('rel', /noreferrer/);
+  await expect(star).toHaveAttribute('rel', /noopener/);
+
+  const discord = page.getByTestId('entry-discord-badge');
+  await expect(discord).toHaveAttribute('href', 'https://discord.gg/mHAjSMV6gz');
+  await expect(discord).toHaveAttribute('title', /Join the Open Design Discord/i);
+  await expect(discord).toHaveAttribute('aria-label', /Join the Open Design Discord/i);
+});
+
+test('home topbar Use everywhere navigates to Integrations with the tab selected', async ({ page }) => {
+  await gotoEntryHome(page);
+
+  await page.getByTestId('entry-use-everywhere-button').click();
+  await expect(page.getByRole('heading', { name: 'Integrations' })).toBeVisible();
+  await expect(page.getByTestId('integrations-tab-use-everywhere')).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+});
+
+test('home topbar settings button opens settings and closes the execution popover', async ({ page }) => {
+  await gotoEntryHome(page);
+
+  const pill = page.getByTestId('inline-model-switcher-chip');
+  const popover = page.getByTestId('inline-model-switcher-popover');
+
+  await pill.click();
+  await expect(popover).toBeVisible();
+
+  await page.getByRole('button', { name: OPEN_SETTINGS_LABEL }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(popover).toHaveCount(0);
+});
+
+test('clicking the top-left logo from another entry view returns to the home hero', async ({ page }) => {
+  await gotoEntryHome(page);
+
+  await page.getByTestId('entry-use-everywhere-button').click();
+  await expect(page.getByRole('heading', { name: 'Integrations' })).toBeVisible();
+
+  await page.getByTestId('entry-nav-logo').click();
+  await expect(page.getByTestId('home-hero')).toBeVisible();
+  await expect(page.getByTestId('home-hero-input')).toBeVisible();
+  await expect(page.getByTestId('home-hero-type-tabs')).toBeVisible();
+  await expect(page.getByTestId('entry-star-badge')).toBeVisible();
 });

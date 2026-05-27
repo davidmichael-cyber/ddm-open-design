@@ -1,19 +1,9 @@
 name: agent-pr-explore-sandbox
 
-# Trusted-orchestrator workflow for PR exploration. It intentionally uses
-# pull_request_target so the workflow file and runner script come from the
-# protected base branch. The PR head is never checked out on the host runner;
-# the sandbox script fetches and executes it inside Docker.
+# Trusted-orchestrator workflow for manual PR exploration. Keep this dispatch
+# only while the self-hosted runner and approval flow are being stabilized, so
+# ordinary PRs do not accumulate waiting checks.
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "apps/web/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".github/workflows/agent-pr-explore-sandbox.yml"
-      - ".github/scripts/agent-pr-explore-sandbox.sh"
   workflow_dispatch:
     inputs:
       pr_number:
@@ -33,7 +23,6 @@ concurrency:
 jobs:
   sandbox:
     name: Sandbox PR runtime
-    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft }}
     runs-on: [self-hosted, agent-pr-explore]
     environment: agent-pr-explore
     timeout-minutes: 45
@@ -106,11 +95,12 @@ jobs:
           OD_EXPECT_TIMEOUT_SECONDS: "1200"
           OD_EXPECT_CONTEXT_MAX_BYTES: "120000"
           OD_TRACE_R2_UPLOAD: "1"
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_PUBLIC_ORIGIN: ${{ vars.R2_PUBLIC_ORIGIN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.CLOUDFLARE_R2_RELEASES_AK }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.CLOUDFLARE_R2_RELEASES_SK }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || secrets.CLOUDFLARE_R2_RELEASES_BUCKET }}
+          R2_PUBLIC_ORIGIN: ${{ vars.R2_PUBLIC_ORIGIN || vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN || secrets.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT || secrets.CLOUDFLARE_R2_RELEASES_URL }}
         run: .github/scripts/agent-pr-explore-sandbox.sh
 
       - name: Upload sandbox artifacts
@@ -158,7 +148,8 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" -f body="$body" --silent
           fi
 
-          case "${PR_AUTHOR,,}" in
+          pr_author_lc="$(printf '%s' "$PR_AUTHOR" | tr '[:upper:]' '[:lower:]')"
+          case "$pr_author_lc" in
             nettee|mrcfps|alchemistklk|siri-ray)
               ;;
             *)

@@ -425,6 +425,33 @@ function loadPlaywright() {
   throw new Error("Unable to resolve playwright. Install playwright or expect-cli on the runner host.");
 }
 
+function resolvePlaywrightCliPath() {
+  const candidates = [];
+  try {
+    candidates.push(require.resolve("playwright/package.json"));
+  } catch {}
+  try {
+    const expectBin = childProcess.execFileSync("which", ["expect-cli"], { encoding: "utf8" }).trim();
+    if (expectBin) candidates.push(createRequire(fs.realpathSync(expectBin)).resolve("playwright/package.json"));
+  } catch {}
+
+  for (const packageJsonPath of candidates) {
+    const cliPath = path.join(path.dirname(packageJsonPath), "cli.js");
+    if (fs.existsSync(cliPath)) return cliPath;
+  }
+  return null;
+}
+
+function ensurePlaywrightBrowserCache() {
+  if (process.env.OD_INSTALL_PLAYWRIGHT_BROWSERS === "0") return;
+  const cliPath = resolvePlaywrightCliPath();
+  if (!cliPath) return;
+  childProcess.execFileSync(process.execPath, [cliPath, "install", "chromium"], {
+    env: process.env,
+    stdio: "inherit",
+  });
+}
+
 async function dismissStartupDialogs(page) {
   for (const label of [/not now/i, /skip/i, /continue/i]) {
     const button = page.getByRole("button", { name: label }).first();
@@ -617,6 +644,7 @@ function writeTraceViewerFiles(viewerUrl) {
 
 (async () => {
   const { chromium } = loadPlaywright();
+  ensurePlaywrightBrowserCache();
   fs.mkdirSync(videoDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
@@ -1171,6 +1199,8 @@ This PR does not touch a path that the browser explorer can map to app UI/runtim
 - None from this PR diff. Add deterministic checks when a future PR changes app/runtime behavior.
 REPORT
   echo "No app/runtime surface touched; wrote inconclusive advisory report to $artifacts/expect.log"
+  record_playwright_artifacts || true
+  publish_trace_artifacts_to_r2 || true
   write_agent_report_artifact
   docker logs "$container_name" > "$artifacts/docker.log" 2>&1 || true
   exit 0

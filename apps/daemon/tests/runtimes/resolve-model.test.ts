@@ -17,7 +17,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { resolveModelForAgent } from '../../src/runtimes/models.js';
+import {
+  rememberLiveModels,
+  resolveModelForAgent,
+} from '../../src/runtimes/models.js';
 import type { RuntimeAgentDef } from '../../src/runtimes/types.js';
 
 function defWith(fallbackIds: string[]): RuntimeAgentDef {
@@ -32,6 +35,13 @@ function defWith(fallbackIds: string[]): RuntimeAgentDef {
   };
 }
 
+function defWithId(id: string, fallbackIds: string[]): RuntimeAgentDef {
+  return {
+    ...defWith(fallbackIds),
+    id,
+  };
+}
+
 describe('resolveModelForAgent', () => {
   it('substitutes the first concrete fallback when the resolved model is null and the def has no "default" option', () => {
     const def = defWith(['gpt-5.4-mini', 'gpt-5.4']);
@@ -41,6 +51,27 @@ describe('resolveModelForAgent', () => {
   it('substitutes when the resolved model is the synthetic "default" id and the def omits "default"', () => {
     const def = defWith(['gpt-5.4-mini', 'gpt-5.4']);
     expect(resolveModelForAgent(def, 'default')).toBe('gpt-5.4-mini');
+  });
+
+  it('prefers the first remembered live model when the def cannot accept the synthetic default model', () => {
+    const def = defWithId('live-default-test', []);
+    rememberLiveModels(def.id, [
+      { id: 'deepseek-v3.2', label: 'deepseek-v3.2' },
+      { id: 'glm-5.1', label: 'glm-5.1' },
+    ]);
+
+    expect(resolveModelForAgent(def, null)).toBe('deepseek-v3.2');
+    expect(resolveModelForAgent(def, 'default')).toBe('deepseek-v3.2');
+  });
+
+  it('keeps common default-capable defs untouched even when live models are remembered', () => {
+    const def = defWithId('live-default-capable-test', ['default', 'sonnet']);
+    rememberLiveModels(def.id, [
+      { id: 'deepseek-v3.2', label: 'deepseek-v3.2' },
+    ]);
+
+    expect(resolveModelForAgent(def, null)).toBe(null);
+    expect(resolveModelForAgent(def, 'default')).toBe('default');
   });
 
   it('leaves the resolved model alone when the def lists "default" itself (the common case for hermes/devin/kimi)', () => {

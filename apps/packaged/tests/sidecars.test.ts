@@ -16,15 +16,16 @@
  * @see https://github.com/nexu-io/open-design/issues/710
  */
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
   buildPackagedDaemonSpawnEnv,
   resolveDaemonStatusTimeoutMs,
   resolvePackagedChildBaseEnv,
+  resolvePackagedElectronNodeCommand,
   resolvePackagedPathEnv,
   waitForStatus,
 } from '../src/sidecars.js';
@@ -121,6 +122,53 @@ describe('packaged child Vite+ environment forwarding', () => {
       else process.env.VP_HOME = originalVpHome;
       rmSync(vpHome, { recursive: true, force: true });
     }
+  });
+});
+
+describe('resolvePackagedElectronNodeCommand', () => {
+  it('uses the hidden Electron helper as the macOS Electron-as-Node command when available', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'od-packaged-electron-helper-'));
+    try {
+      const appPath = join(root, 'Open Design.app');
+      const execPath = join(appPath, 'Contents', 'MacOS', 'Open Design');
+      const helperPath = join(
+        appPath,
+        'Contents',
+        'Frameworks',
+        'Open Design Helper.app',
+        'Contents',
+        'MacOS',
+        'Open Design Helper',
+      );
+
+      mkdirSync(join(appPath, 'Contents', 'MacOS'), { recursive: true });
+      mkdirSync(dirname(helperPath), { recursive: true });
+      writeFileSync(execPath, '#!/bin/sh\n', 'utf8');
+      writeFileSync(helperPath, '#!/bin/sh\n', 'utf8');
+
+      await expect(resolvePackagedElectronNodeCommand(execPath, 'darwin')).resolves.toBe(helperPath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the main executable when the macOS helper is unavailable', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'od-packaged-no-electron-helper-'));
+    try {
+      const execPath = join(root, 'Open Design.app', 'Contents', 'MacOS', 'Open Design');
+      mkdirSync(dirname(execPath), { recursive: true });
+      writeFileSync(execPath, '#!/bin/sh\n', 'utf8');
+
+      await expect(resolvePackagedElectronNodeCommand(execPath, 'darwin')).resolves.toBe(execPath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the main executable on non-macOS platforms', async () => {
+    const execPath = '/opt/Open Design/open-design';
+
+    await expect(resolvePackagedElectronNodeCommand(execPath, 'linux')).resolves.toBe(execPath);
   });
 });
 

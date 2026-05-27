@@ -54,6 +54,7 @@ describe('AMR runtime def', () => {
     const def = getAgentDef('amr');
     expect(def).toBeTruthy();
     expect(def?.id).toBe('amr');
+    expect(def?.name).toBe('AMR');
     expect(def?.bin).toBe('vela');
     expect(def?.streamFormat).toBe('acp-json-rpc');
   });

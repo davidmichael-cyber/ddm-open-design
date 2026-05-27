@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, open, type FileHandle } from "node:fs/promises";
+import { access, mkdir, open, type FileHandle } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { delimiter, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -93,6 +93,43 @@ function resolveSidecarEntry(packageName: string, exportName: string): string {
 
 function logPathFor(paths: PackagedNamespacePaths, app: AppKey): string {
   return join(paths.logsRoot, app, "latest.log");
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolvePackagedElectronNodeCommand(
+  execPath = process.execPath,
+  platform = process.platform,
+): Promise<string> {
+  if (platform !== "darwin") return execPath;
+
+  const executableName = execPath.split("/").pop();
+  if (executableName == null || executableName.length === 0) return execPath;
+
+  const marker = "/Contents/MacOS/";
+  const markerIndex = execPath.lastIndexOf(marker);
+  if (markerIndex === -1) return execPath;
+
+  const appPath = execPath.slice(0, markerIndex);
+  const helperName = `${executableName} Helper`;
+  const helperPath = join(
+    appPath,
+    "Contents",
+    "Frameworks",
+    `${helperName}.app`,
+    "Contents",
+    "MacOS",
+    helperName,
+  );
+
+  return (await pathExists(helperPath)) ? helperPath : execPath;
 }
 
 async function openLog(path: string): Promise<FileHandle> {
@@ -340,7 +377,7 @@ async function spawnSidecarChild(options: {
     },
     stamp,
   });
-  const command = options.nodeCommand ?? process.execPath;
+  const command = options.nodeCommand ?? (await resolvePackagedElectronNodeCommand());
   const child = spawn(
     command,
     [options.entryPath, ...createProcessStampArgs(stamp, OPEN_DESIGN_SIDECAR_CONTRACT)],

@@ -37,7 +37,7 @@ const AMR_DEFAULT_MODEL: RuntimeModelOption = {
 
 export const amrAgentDef = {
   id: 'amr',
-  name: 'AMR (vela)',
+  name: 'AMR',
   bin: 'vela',
   versionArgs: ['--version'],
   fetchModels: async (resolvedBin, env) =>

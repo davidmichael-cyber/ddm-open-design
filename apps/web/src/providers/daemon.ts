@@ -235,6 +235,21 @@ function daemonSseError(data: SseErrorPayload): Error {
   return error;
 }
 
+function shouldSuppressLifecycleExitFallback(
+  agentId: string | undefined,
+  exitCode: number | null,
+  exitSignal: string | null,
+  stderrTail: string,
+): boolean {
+  if (exitCode !== 130 || exitSignal) return false;
+  if (agentId === 'amr') return true;
+  const normalizedStderr = stderrTail.toLowerCase();
+  return (
+    normalizedStderr.includes('opencode server listening') ||
+    normalizedStderr.includes('opencode_server_password')
+  );
+}
+
 export async function streamViaDaemon({
   agentId,
   history,
@@ -327,6 +342,7 @@ export async function streamViaDaemon({
     notifyRunsChanged();
     emitRunStatus('queued');
     await consumeDaemonRun({
+      agentId,
       runId,
       signal,
       cancelSignal,
@@ -517,6 +533,7 @@ export async function listProjectRuns(): Promise<ChatRunStatusResponse[]> {
 }
 
 async function consumeDaemonRun({
+  agentId,
   runId,
   signal,
   cancelSignal,
@@ -524,7 +541,7 @@ async function consumeDaemonRun({
   initialLastEventId,
   onRunStatus,
   onRunEventId,
-}: DaemonReattachOptions): Promise<void> {
+}: DaemonReattachOptions & { agentId?: string }): Promise<void> {
   let acc = '';
   let stderrBuf = '';
   let exitCode: number | null = null;
@@ -701,6 +718,10 @@ async function consumeDaemonRun({
       (!serverDeclaredSuccess &&
         (exitSignal || (exitCode !== null && exitCode !== 0)));
     if (looksLikeFailure) {
+      if (shouldSuppressLifecycleExitFallback(agentId, exitCode, exitSignal, stderrBuf)) {
+        handlers.onDone(acc);
+        return;
+      }
       const tail = stderrBuf.trim().slice(-400);
       handlers.onError(
         new Error(`agent exited with ${exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`}${tail ? `\n${tail}` : ''}`),

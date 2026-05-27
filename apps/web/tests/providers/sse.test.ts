@@ -492,6 +492,45 @@ describe('streamViaDaemon', () => {
     expect(handlers.onDone).not.toHaveBeenCalled();
   });
 
+  it('suppresses AMR exit code 130 lifecycle noise from the chat error surface', async () => {
+    const handlers = createDaemonHandlers();
+    const onRunStatus = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn()
+        .mockResolvedValueOnce(jsonResponse({ runId: 'run-1' }))
+        .mockResolvedValueOnce(
+          sseResponse(
+            [
+              'event: stderr',
+              'data: {"chunk":"Warning: OPENCODE_SERVER_PASSWORD is not set; server is unsecured.\\n"}',
+              '',
+              'event: stderr',
+              'data: {"chunk":"opencode server listening on http://127.0.0.1:1234\\n"}',
+              '',
+              'event: end',
+              'data: {"code":130,"status":"failed"}',
+              '',
+              '',
+            ].join('\n'),
+          ),
+        ),
+    );
+
+    await streamViaDaemon({
+      agentId: 'amr',
+      history: [{ id: '1', role: 'user', content: 'hello' }],
+      systemPrompt: '',
+      signal: new AbortController().signal,
+      handlers,
+      onRunStatus,
+    });
+
+    expect(onRunStatus).toHaveBeenCalledWith('failed');
+    expect(handlers.onError).not.toHaveBeenCalled();
+    expect(handlers.onDone).toHaveBeenCalledWith('');
+  });
+
   it('still surfaces an error when the end event has a signal but no status field', async () => {
     // Same regression as above for the signal arm of the safety net. Without
     // explicit `status: 'succeeded'` from the server, a SIGTERM-style signal

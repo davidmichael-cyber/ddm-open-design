@@ -53,6 +53,13 @@ export function normalizeVelaModelId(rawId: string): string | null {
 }
 
 function normalizeKnownVelaVersionId(rawId: string): string | null {
+  const claude = /^claude[_-](haiku|opus|sonnet)[_-](\d+)[_-](\d+)(.*)$/i.exec(rawId);
+  if (claude) {
+    const [, family, major, minor, suffix = ''] = claude;
+    if (!family || !major || !minor) return null;
+    return `claude-${family.toLowerCase()}-${major}.${minor}${suffix.replace(/_/g, '-')}`;
+  }
+
   const gpt = /^gpt_(\d+)_(\d+)(.*)$/i.exec(rawId);
   if (gpt) {
     const [, major, minor, suffix = ''] = gpt;

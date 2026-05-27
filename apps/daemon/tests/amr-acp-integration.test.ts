@@ -93,6 +93,9 @@ describe('AMR runtime def', () => {
     expect(normalizeVelaModelId('public_model_gemini_3_1_pro_preview')).toBe(
       'gemini-3.1-pro-preview',
     );
+    expect(normalizeVelaModelId('public_model_claude_haiku_4_5')).toBe('claude-haiku-4.5');
+    expect(normalizeVelaModelId('public_model_claude_opus_4_6')).toBe('claude-opus-4.6');
+    expect(normalizeVelaModelId('vela/claude-sonnet-4-7')).toBe('claude-sonnet-4.7');
     expect(normalizeVelaModelId('public_model_gpt_5_4')).toBe('gpt-5.4');
     expect(normalizeVelaModelId('public_model_gpt_5_4_mini')).toBe('gpt-5.4-mini');
     expect(normalizeVelaModelId('public_model_minimax_m2_7')).toBe('minimax-m2.7');
@@ -109,6 +112,7 @@ describe('AMR runtime def', () => {
       'public_model_deepseek_v3_2    vela',
       'public_model_deepseek_v4_flash    vela',
       'public_model_glm_5_1          vela',
+      'public_model_claude_opus_4_6  vela',
       'public_model_gpt_image_2      vela',
       'vela/kimi-k2.6                vela',
       'public_model_seedance_2       vela',
@@ -119,7 +123,7 @@ describe('AMR runtime def', () => {
       { id: 'deepseek-v4-flash', label: 'deepseek-v4-flash' },
       { id: 'deepseek-v3.2', label: 'deepseek-v3.2' },
       { id: 'glm-5.1', label: 'glm-5.1' },
-      { id: 'claude-opus-4-6', label: 'claude-opus-4-6' },
+      { id: 'claude-opus-4.6', label: 'claude-opus-4.6' },
       { id: 'kimi-k2.6', label: 'kimi-k2.6' },
     ]);
     expect(models.every((model) => !model.label.includes('vela/'))).toBe(true);

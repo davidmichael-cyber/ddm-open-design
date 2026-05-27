@@ -191,6 +191,31 @@ describe('AssistantMessage status badge updates (Bug A)', () => {
     const matches = screen.queryAllByText('claude-opus-4-7-max');
     expect(matches.length).toBe(1);
   });
+
+  it('renders bare URLs in status details as links', () => {
+    render(
+      <AssistantMessage
+        message={baseMessage({
+          runStatus: 'failed',
+          events: [
+            {
+              kind: 'status',
+              label: 'error',
+              detail:
+                'AMR Cloud reported insufficient balance. Recharge at https://open-design.ai/amr/wallet, then retry.',
+            } as ChatMessage['events'][number],
+          ],
+        })}
+        streaming={false}
+        projectId="proj-1"
+        onFeedback={vi.fn()}
+      />,
+    );
+
+    const link = screen.getByRole('link', { name: 'https://open-design.ai/amr/wallet' });
+    expect(link.getAttribute('href')).toBe('https://open-design.ai/amr/wallet');
+    expect(link.classList.contains('md-link')).toBe(true);
+  });
 });
 
 describe('AssistantMessage question forms', () => {

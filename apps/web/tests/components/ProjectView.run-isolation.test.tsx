@@ -872,6 +872,9 @@ describe('ProjectView conversation run isolation', () => {
     expect(screen.getByTestId('assistant-events').textContent).toContain(
       'AMR Cloud reported insufficient balance for this model. Recharge your AMR wallet at https://open-design.ai/amr/wallet, then retry this run.',
     );
+    expect(
+      screen.getByTestId('assistant-events').textContent?.match(/https:\/\/open-design\.ai\/amr\/wallet/g),
+    ).toHaveLength(1);
     expect(screen.getByTestId('assistant-events').textContent).not.toContain(
       '[Recharge AMR wallet](https://open-design.ai/amr/wallet)',
     );

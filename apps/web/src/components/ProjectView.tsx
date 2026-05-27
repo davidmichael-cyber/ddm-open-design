@@ -2077,7 +2077,7 @@ export function ProjectView({
               textBuffer.cancel();
               unregisterTextBuffer();
               setError(amrFailureText ?? err.message);
-              appendAssistantErrorEvent(message.id, amrFailureText ?? err.message);
+              if (!amrFailureText) appendAssistantErrorEvent(message.id, err.message);
               updateMessageById(
                 message.id,
                 (prev) => ({
@@ -2641,7 +2641,7 @@ export function ProjectView({
           textBuffer.cancel();
           cancelSendTextBuffer();
           setError(amrFailureText ?? err.message);
-          appendAssistantErrorEvent(assistantId, amrFailureText ?? err.message);
+          if (!amrFailureText) appendAssistantErrorEvent(assistantId, err.message);
           updateAssistant((prev) => ({
             ...prev,
             endedAt,

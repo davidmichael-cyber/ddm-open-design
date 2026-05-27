@@ -1,4 +1,4 @@
-import { detectAcpModels } from './shared.js';
+import { execAgentFile } from './shared.js';
 import type { RuntimeAgentDef, RuntimeModelOption } from '../types.js';
 
 // AMR is the vela CLI's ACP stdio mode. `vela agent run --runtime opencode`
@@ -10,57 +10,67 @@ import type { RuntimeAgentDef, RuntimeModelOption } from '../types.js';
 // See docs/new-agent-runtime-acp.md and the vela
 // `specs/current/runtime/manual-agent-run-openrouter.md`.
 //
-// Model wiring notes (verified against a live `vela agent run --runtime
-// opencode` against OpenRouter):
+// Model wiring notes:
 //
 //   1. vela rejects `session/prompt` until `session/set_model` has been
 //      called, so AMR cannot accept the synthetic `default` model id —
-//      attachAcpSession skips set_model whenever model === 'default'. We
-//      pin a concrete vela-compatible model as the default option so the
-//      chat run always sets one explicitly.
+//      attachAcpSession skips set_model whenever model === 'default'.
 //
-//   2. vela auto-prepends `openai/` to whatever modelId we send (it shells
-//      out to opencode's openai provider). So fallback ids must be the
-//      bare model name (`gpt-5.4-mini`), NOT the OpenRouter-style
-//      `openai/gpt-5.4-mini` — that becomes the double-prefixed
-//      `openai/openai/gpt-5.4-mini` and opencode reports
-//      `ProviderModelNotFoundError`.
-//
-//   3. The fallback list mirrors opencode's known openai-provider model
-//      registry (which is what `vela --runtime opencode` ultimately routes
-//      through). Anthropic / Google / etc. ids from OpenRouter do not work
-//      here until vela ships additional `--runtime` adapters.
-const AMR_DEFAULT_MODEL: RuntimeModelOption = {
-  id: 'gpt-5.4-mini',
-  label: 'gpt-5.4-mini (openrouter · default)',
-};
+//   2. Vela 0.0.1 exposes the current link-supported catalog through
+//      `vela models`, but that command prints public ids such as
+//      `public_model_glm_5`. The ACP `session/set_model` call accepts the
+//      link-facing slug (`glm-5` / `glm-5.1`), so Open Design normalizes
+//      those public ids at the daemon boundary until Vela exposes canonical
+//      ACP ids directly.
+export function normalizeVelaModelId(rawId: string): string | null {
+  const trimmed = rawId.trim();
+  if (!trimmed) return null;
+  const withoutPrefix = trimmed.startsWith('public_model_')
+    ? trimmed.slice('public_model_'.length)
+    : trimmed;
+  if (!withoutPrefix) return null;
+  if (/^glm_5_1$/i.test(withoutPrefix)) return 'glm-5.1';
+  if (/^glm_5$/i.test(withoutPrefix)) return 'glm-5';
+  return withoutPrefix.replace(/_/g, '-');
+}
+
+export function parseVelaModels(stdout: string): RuntimeModelOption[] {
+  const seen = new Set<string>();
+  const models: RuntimeModelOption[] = [];
+  for (const line of String(stdout || '').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const [rawId, provider] = trimmed.split(/\s+/);
+    if (!rawId) continue;
+    const id = normalizeVelaModelId(rawId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const providerLabel = provider ? ` (${provider})` : '';
+    models.push({ id, label: `${id}${providerLabel}` });
+  }
+  return models;
+}
 
 export const amrAgentDef = {
   id: 'amr',
   name: 'AMR (vela)',
   bin: 'vela',
   versionArgs: ['--version'],
-  fetchModels: async (resolvedBin, env) =>
-    detectAcpModels({
-      bin: resolvedBin,
-      args: ['agent', 'run', '--runtime', 'opencode'],
+  fetchModels: async (resolvedBin, env) => {
+    const { stdout } = await execAgentFile(resolvedBin, ['models'], {
       env,
-      timeoutMs: 20_000,
-      defaultModelOption: AMR_DEFAULT_MODEL,
-    }),
-  fallbackModels: [
-    AMR_DEFAULT_MODEL,
-    { id: 'gpt-5.4', label: 'gpt-5.4 (openrouter)' },
-    { id: 'gpt-5.4-fast', label: 'gpt-5.4-fast (openrouter)' },
-    { id: 'gpt-5.4-mini-fast', label: 'gpt-5.4-mini-fast (openrouter)' },
-    { id: 'gpt-5.2', label: 'gpt-5.2 (openrouter)' },
-  ],
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    });
+    return parseVelaModels(String(stdout));
+  },
+  // Fail closed when Vela's live catalog is unavailable. Stale static
+  // fallbacks let users select models that link/opencode no longer accepts.
+  fallbackModels: [] as RuntimeModelOption[],
   buildArgs: () => ['agent', 'run', '--runtime', 'opencode'],
   streamFormat: 'acp-json-rpc',
-  // Daemon-process env override for the default model id (see
-  // resolveModelForAgent in runtimes/models.ts). Lets operators swap the
-  // hardcoded fallback (`gpt-5.4-mini`) without a code change when
-  // opencode's openai-provider registry drops it upstream — just
-  // `export VELA_DEFAULT_MODEL=gpt-5.5` before launching tools-dev / od.
+  // Daemon-process env override for emergency operator pinning. Normal UI
+  // selection comes from the live `vela models` catalog and is preflighted
+  // before spawn.
   defaultModelEnvVar: 'VELA_DEFAULT_MODEL',
 } satisfies RuntimeAgentDef;

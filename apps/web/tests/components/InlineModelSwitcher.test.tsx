@@ -102,6 +102,36 @@ describe('InlineModelSwitcher AMR row', () => {
     ]);
   });
 
+  it('does not expose stale saved AMR models as selectable custom options', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          loggedIn: true,
+          profile: 'default',
+          user: null,
+          configPath: '/Users/test/.vela/config.json',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    ));
+
+    renderSwitcher({
+      agentModels: { amr: { model: 'gpt-5.4-mini', reasoning: 'default' } },
+    });
+
+    fireEvent.click(screen.getByTestId('inline-model-switcher-chip'));
+
+    const popover = screen.getByTestId('inline-model-switcher-popover');
+    const modelSelect = within(popover).getByTestId(
+      'inline-model-switcher-agent-model',
+    ) as HTMLSelectElement;
+    expect(modelSelect.value).toBe('default');
+    expect(Array.from(modelSelect.options).map((option) => option.value)).toEqual([
+      'default',
+      'amr-cloud-latest',
+    ]);
+  });
+
   it('shows icon-only signed-in status instead of account information in the AMR button', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

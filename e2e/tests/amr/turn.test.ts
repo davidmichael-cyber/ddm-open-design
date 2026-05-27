@@ -14,8 +14,8 @@
  *      `agentId: 'amr'` through `attachAcpSession` (not the legacy
  *      json-event-stream parser the old `incongruous-megaraptor` branch
  *      used).
- *   2. `resolveModelForAgent` substitutes the synthetic `'default'` model
- *      id with AMR's first concrete fallback id (`gpt-5.4-mini`), so vela
+ *   2. AMR preflight refreshes `vela models` and substitutes the synthetic
+ *      `'default'` model id with the first live model (`glm-5`), so vela
  *      receives a real `session/set_model` before `session/prompt` — a
  *      regression here would manifest as
  *      `session/set_model must be called before session/prompt` on the
@@ -46,6 +46,7 @@ type ProjectResponse = {
 // Inline fake `vela` binary. Handles the two argv shapes Open Design's
 // daemon ever spawns:
 //
+//   `vela models`                       — print the live link model catalog.
 //   `vela login`                        — write ~/.vela/config.json and exit 0.
 //   `vela agent run --runtime opencode` — ACP stdio runtime (initialize →
 //                                          session/new → session/set_model →
@@ -62,6 +63,7 @@ import { argv, stdin, stdout, env, exit } from 'node:process';
 
 const ASSISTANT_TEXT = env.FAKE_VELA_TEXT || 'Hello from the e2e fake vela.';
 const SESSION_ID = 'fake-amr-session-1';
+const LIVE_MODEL_ID = 'glm-5';
 
 function writeMessage(obj) {
   stdout.write(JSON.stringify(obj) + '\\n');
@@ -91,6 +93,11 @@ if (argv[2] === 'login') {
   exit(0);
 }
 
+if (argv[2] === 'models') {
+  stdout.write('public_model_glm_5    vela\\n');
+  exit(0);
+}
+
 const sessionsWithModel = new Set();
 let buffer = '';
 stdin.setEncoding('utf8');
@@ -115,8 +122,8 @@ function handle(msg) {
       protocolVersion: 1,
       agentCapabilities: { promptCapabilities: { text: true } },
       models: {
-        currentModelId: 'gpt-5.4-mini',
-        availableModels: [{ modelId: 'gpt-5.4-mini', name: 'gpt-5.4-mini' }],
+        currentModelId: LIVE_MODEL_ID,
+        availableModels: [{ modelId: LIVE_MODEL_ID, name: LIVE_MODEL_ID }],
       },
     });
     return;
@@ -125,8 +132,8 @@ function handle(msg) {
     writeResult(id, {
       sessionId: SESSION_ID,
       models: {
-        currentModelId: 'gpt-5.4-mini',
-        availableModels: [{ modelId: 'gpt-5.4-mini', name: 'gpt-5.4-mini' }],
+        currentModelId: LIVE_MODEL_ID,
+        availableModels: [{ modelId: LIVE_MODEL_ID, name: LIVE_MODEL_ID }],
       },
     });
     return;
@@ -252,10 +259,10 @@ describe('AMR chat-run end-to-end', () => {
         conversationId,
         designSystemId: null,
         message: PROMPT,
-        // 'default' must be resolved to AMR's first concrete fallback by
-        // `resolveModelForAgent`; if that helper regressed, the fake vela
-        // would reject session/prompt with the `set_model must be called
-        // before session/prompt` error encoded above.
+        // 'default' must be resolved through AMR's live `vela models`
+        // preflight; if that helper regressed, the fake vela would reject
+        // session/prompt with the `set_model must be called before
+        // session/prompt` error encoded above.
         model: 'default',
         projectId,
         reasoning: 'default',

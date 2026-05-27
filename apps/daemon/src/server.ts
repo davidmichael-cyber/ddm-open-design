@@ -39,7 +39,7 @@ import {
   sanitizeCustomModel,
   spawnEnvForAgent,
 } from './agents.js';
-import { resolveModelForAgent } from './runtimes/models.js';
+import { rememberLiveModels, resolveModelForAgent } from './runtimes/models.js';
 import {
   cancelVelaLogin,
   forgetVelaLogin,
@@ -2814,6 +2814,25 @@ function openNativeFolderDialog() {
  */
 function createSseErrorPayload(code, message, init = {}) {
   return { message, error: createCompatApiError(code, message, init) };
+}
+
+function createAmrModelUnavailablePayload(model, init = {}) {
+  const modelText = typeof model === 'string' && model.trim()
+    ? `"${model.trim()}"`
+    : 'the selected model';
+  return createSseErrorPayload(
+    'AMR_MODEL_UNAVAILABLE',
+    `AMR model ${modelText} is not available from Vela. Refresh the AMR model list, choose a supported model, and retry this run.`,
+    {
+      retryable: false,
+      details: {
+        kind: 'amr_model',
+        action: 'choose_model',
+        ...(typeof model === 'string' && model.trim() ? { model: model.trim() } : {}),
+        ...init,
+      },
+    },
+  );
 }
 
 const UPLOAD_DIR = path.join(os.tmpdir(), 'od-uploads');
@@ -10412,7 +10431,7 @@ export async function startServer({
     // (live or fallback). Otherwise allow it through if it passes a
     // permissive sanitizer — that's the path for user-typed custom model
     // ids the CLI's listing didn't surface yet.
-    const safeModel = resolveModelForAgent(
+    let safeModel = resolveModelForAgent(
       def,
       typeof model === 'string'
         ? isKnownModel(def, model)
@@ -10425,6 +10444,10 @@ export async function startServer({
         ? (def.reasoningOptions.find((r) => r.id === reasoning)?.id ?? null)
         : null;
     const agentOptions = { model: safeModel, reasoning: safeReasoning };
+    const send = (event, data) => {
+      persistRunEventToAssistantMessage(db, run, event, data);
+      design.runs.emit(run, event, data);
+    };
     const mcpServers = buildLiveArtifactsMcpServersForAgent(def, {
       enabled: Boolean(toolTokenGrant?.token),
       command: process.execPath,
@@ -10575,6 +10598,53 @@ export async function startServer({
     const agentLaunch = resolveAgentLaunch(def, configuredAgentEnv);
     const resolvedBin = agentLaunch.selectedPath;
 
+    if (def.id === 'amr' && resolvedBin && agentLaunch.launchPath) {
+      const launchPath = agentLaunch.launchPath ?? resolvedBin;
+      const modelProbeEnv = launchPath
+        ? applyAgentLaunchEnv(
+            spawnEnvForAgent(
+              def.id,
+              {
+                ...createAgentRuntimeEnv(process.env, daemonUrl, toolTokenGrant),
+                ...(def.env || {}),
+              },
+              configuredAgentEnv,
+            ),
+            agentLaunch,
+          )
+        : null;
+      let liveModels = [];
+      try {
+        liveModels =
+          launchPath && typeof def.fetchModels === 'function'
+            ? ((await def.fetchModels(launchPath, modelProbeEnv)) ?? [])
+            : [];
+      } catch {
+        liveModels = [];
+      }
+      rememberLiveModels(def.id, liveModels);
+      const liveModelIds = new Set(
+        liveModels.map((candidate) => candidate?.id).filter(Boolean),
+      );
+      if (liveModelIds.size === 0) {
+        send('error', createAmrModelUnavailablePayload(safeModel, {
+          reason: 'model_catalog_unavailable',
+        }));
+        return design.runs.finish(run, 'failed', 1, null);
+      }
+      if (!safeModel || safeModel === 'default') {
+        safeModel = liveModels[0]?.id ?? null;
+        agentOptions.model = safeModel;
+      }
+      if (!safeModel || !liveModelIds.has(safeModel)) {
+        send('error', createAmrModelUnavailablePayload(
+          typeof model === 'string' && model.trim() ? model : safeModel,
+          { availableModels: [...liveModelIds] },
+        ));
+        return design.runs.finish(run, 'failed', 1, null);
+      }
+    }
+
     const args = def.buildArgs(
       composed,
       safeImages,
@@ -10638,10 +10708,6 @@ export async function startServer({
       return design.runs.finish(run, 'failed', 1, null);
     }
 
-    const send = (event, data) => {
-      persistRunEventToAssistantMessage(db, run, event, data);
-      design.runs.emit(run, event, data);
-    };
     const inactivityTimeoutMs = resolveChatRunInactivityTimeoutMs();
     const artifactQuietPeriodMs = resolveChatRunArtifactQuietPeriodMs();
     const inactivityKillGraceMs = 3_000;
@@ -11302,6 +11368,7 @@ export async function startServer({
         cwd: effectiveCwd,
         model: safeModel,
         mcpServers,
+        ...(def.id === 'amr' ? { modelUnavailableErrorCode: 'AMR_MODEL_UNAVAILABLE' } : {}),
         send: (event, data) => {
           noteAgentActivity();
           send(event, data);

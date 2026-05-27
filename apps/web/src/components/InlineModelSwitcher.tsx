@@ -254,8 +254,17 @@ export function InlineModelSwitcher({
 
   const currentChoice =
     (config.agentId && config.agentModels?.[config.agentId]) || {};
+  const currentAgentModelIds = currentAgent?.models?.map((m) => m.id) ?? [];
+  const configuredModelId =
+    typeof currentChoice.model === 'string' && currentChoice.model
+      ? currentChoice.model
+      : null;
   const currentModelId =
-    currentChoice.model ?? currentAgent?.models?.[0]?.id ?? null;
+    currentAgent?.id === 'amr' &&
+    configuredModelId &&
+    !currentAgentModelIds.includes(configuredModelId)
+      ? currentAgent?.models?.[0]?.id ?? null
+      : configuredModelId ?? currentAgent?.models?.[0]?.id ?? null;
   const currentModelLabel =
     currentAgent?.models?.find((m) => m.id === currentModelId)?.label ?? null;
   const amrLoggedIn = amrStatus?.loggedIn === true;
@@ -520,7 +529,8 @@ export function InlineModelSwitcher({
                     }
                   >
                     {renderModelOptions(currentAgent.models)}
-                    {currentModelId &&
+                    {currentAgent.id !== 'amr' &&
+                    currentModelId &&
                     !currentAgent.models.some((m) => m.id === currentModelId) ? (
                       <option value={currentModelId}>
                         {currentModelId} {t('inlineSwitcher.customSuffix')}

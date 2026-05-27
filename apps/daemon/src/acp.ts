@@ -70,6 +70,7 @@ interface AttachAcpSessionOptions {
   clientName?: string;
   clientVersion?: string;
   stageTimeoutMs?: number;
+  modelUnavailableErrorCode?: 'AMR_MODEL_UNAVAILABLE';
 }
 
 function errorMessage(err: unknown): string {
@@ -426,6 +427,7 @@ export function attachAcpSession({
   clientName = 'open-design',
   clientVersion = 'runtime-adapter',
   stageTimeoutMs = DEFAULT_STAGE_TIMEOUT_MS,
+  modelUnavailableErrorCode,
 }: AttachAcpSessionOptions) {
   const runStartedAt = Date.now();
   const effectiveCwd = path.resolve(cwd || process.cwd());
@@ -443,6 +445,7 @@ export function attachAcpSession({
   let modelConfigId: string | null = null;
   let emittedThinkingStart = false;
   let emittedFirstTokenStatus = false;
+  let emittedTextChunk = false;
   let finished = false;
   let fatal = false;
   let aborted = false;
@@ -467,12 +470,34 @@ export function attachAcpSession({
     stageTimer = null;
   };
 
+  const amrModelUnavailablePayload = (message: string) => ({
+    message,
+    error: {
+      code: 'AMR_MODEL_UNAVAILABLE',
+      message,
+      retryable: false,
+      details: { kind: 'amr_model', action: 'choose_model' },
+    },
+  });
+
+  const isModelUnavailableError = (message: string) => {
+    const value = message.toLowerCase();
+    return (
+      value.includes('model not found') ||
+      value.includes('providermodelnotfounderror') ||
+      value.includes('unknown model') ||
+      value.includes('invalid model')
+    );
+  };
+
   const fail = (message: string) => {
     if (finished) return;
     finished = true;
     fatal = true;
     clearStageTimer();
-    send('error', { message });
+    send('error', modelUnavailableErrorCode && isModelUnavailableError(message)
+      ? amrModelUnavailablePayload(message)
+      : { message });
     if (!child.killed) child.kill('SIGTERM');
   };
 
@@ -575,6 +600,7 @@ export function attachAcpSession({
       if (update.sessionUpdate === 'agent_message_chunk') {
         const text = asObject(update.content)?.text;
         if (typeof text === 'string' && text.length > 0) {
+          emittedTextChunk = true;
           if (!emittedFirstTokenStatus) {
             emittedFirstTokenStatus = true;
             send('agent', {
@@ -638,6 +664,10 @@ export function attachAcpSession({
       return;
     }
     if (promptRequestId !== null && obj.id === promptRequestId) {
+      if (!emittedTextChunk) {
+        fail('ACP session completed without producing any assistant text. Refresh the AMR model list, choose a supported model, and retry this run.');
+        return;
+      }
       const usage = formatUsage(result.usage);
       if (usage) {
         send('agent', {

@@ -11,8 +11,7 @@
  * data record, so this test also pins the contract the def declares:
  *   - id, bin, streamFormat are stable for downstream consumers
  *   - buildArgs() emits the vela invocation shape the docs describe
- *   - fallback model ids match what opencode's openai provider knows about,
- *     because real vela auto-prepends `openai/` and rejects unknown ids.
+ *   - AMR picker models come from `vela models`, not stale static ids.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -21,7 +20,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { attachAcpSession, detectAcpModels } from '../src/acp.js';
-import { amrAgentDef } from '../src/runtimes/defs/amr.js';
+import {
+  amrAgentDef,
+  normalizeVelaModelId,
+  parseVelaModels,
+} from '../src/runtimes/defs/amr.js';
 import { getAgentDef } from '../src/runtimes/registry.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -67,24 +70,43 @@ describe('AMR runtime def', () => {
     ]);
   });
 
-  it('uses a concrete vela-compatible model as the default, never the synthetic "default" id', () => {
+  it('fails closed instead of exposing static stale fallback models', () => {
     // Real vela rejects session/prompt without a prior session/set_model,
     // and attachAcpSession skips set_model whenever model === 'default'.
-    // So AMR's fallback list must NOT contain the synthetic 'default'.
+    // AMR must rely on the live `vela models` catalog so stale defaults like
+    // gpt-5.4-mini cannot be offered after link stops accepting them.
     const ids = amrAgentDef.fallbackModels.map((m) => m.id);
     expect(ids).not.toContain('default');
-    expect(ids[0]).toBe('gpt-5.4-mini');
+    expect(ids).not.toContain('gpt-5.4-mini');
+    expect(ids).toEqual([]);
   });
 
-  it('uses bare openai model ids so vela can auto-prepend the provider without doubling it', () => {
-    // vela's `--runtime opencode` mode prepends `openai/` to every modelId
-    // before forwarding to opencode. If our fallback list said
-    // `openai/gpt-5.4-mini`, opencode would receive `openai/openai/...` and
-    // report `ProviderModelNotFoundError`.
-    for (const model of amrAgentDef.fallbackModels) {
-      expect(model.id.startsWith('openai/')).toBe(false);
-      expect(model.id.includes('/')).toBe(false);
-    }
+  it('normalizes Vela public model ids to ACP model ids', () => {
+    expect(normalizeVelaModelId('public_model_glm_5')).toBe('glm-5');
+    expect(normalizeVelaModelId('public_model_glm_5_1')).toBe('glm-5.1');
+    expect(normalizeVelaModelId('public_model_qwen3_235b_a22b')).toBe('qwen3-235b-a22b');
+    expect(normalizeVelaModelId('glm-5')).toBe('glm-5');
+  });
+
+  it('parses `vela models` output without adding stale gpt fallbacks', () => {
+    const models = parseVelaModels([
+      'public_model_glm_5    vela',
+      'public_model_glm_5_1  vela',
+      'public_model_glm_5    vela',
+      '',
+    ].join('\n'));
+    expect(models).toEqual([
+      { id: 'glm-5', label: 'glm-5 (vela)' },
+      { id: 'glm-5.1', label: 'glm-5.1 (vela)' },
+    ]);
+  });
+
+  it('fetches AMR picker models from `vela models`', async () => {
+    const models = await amrAgentDef.fetchModels?.(FAKE_VELA, process.env);
+    const ids = (models || []).map((m) => m.id);
+    expect(ids).toContain('glm-5');
+    expect(ids).toContain('glm-5.1');
+    expect(ids).not.toContain('gpt-5.4-mini');
   });
 });
 
@@ -103,7 +125,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
         // Pass a real model id so attachAcpSession sends session/set_model
         // before session/prompt, matching the real vela contract the AMR
         // runtime def encodes.
-        model: 'gpt-5.4-mini',
+        model: 'glm-5',
         mcpServers: [],
         send: (event, payload) => {
           events.push({ event, payload });
@@ -158,6 +180,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
       });
 
       await waitForExit(child);
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(session.hasFatalError()).toBe(true);
     } finally {
       if (child.exitCode === null) child.kill('SIGTERM');
@@ -194,7 +217,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
         child: child as never,
         prompt: 'Say hello',
         cwd: process.cwd(),
-        model: 'gpt-5.4-mini',
+        model: 'glm-5',
         mcpServers: [],
         send: (event, payload) => {
           if (event === 'error') errors.push({ event, payload });
@@ -225,7 +248,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
         child: child as never,
         prompt: 'Say hello',
         cwd: process.cwd(),
-        model: 'gpt-5.4-mini',
+        model: 'glm-5',
         mcpServers: [],
         send: (event, payload) => {
           if (event === 'error') errors.push({ event, payload });
@@ -233,6 +256,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
       });
 
       await waitForExit(child);
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(session.hasFatalError()).toBe(true);
       expect(session.completedSuccessfully()).toBe(false);
     } finally {
@@ -255,7 +279,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
         child: child as never,
         prompt: 'Say hello',
         cwd: process.cwd(),
-        model: 'gpt-5.4-mini',
+        model: 'glm-5',
         mcpServers: [],
         send: (event, payload) => {
           if (event === 'error') errors.push({ event, payload });
@@ -275,6 +299,67 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
     expect(message).toContain('forced session/prompt failure');
   });
 
+  it('maps ACP model-not-found prompt errors to AMR_MODEL_UNAVAILABLE', async () => {
+    const child = spawnFakeVela({
+      FAKE_VELA_PROMPT_ERROR: 'Model not found: vela/gpt-5.4-mini.',
+    });
+    const errors: Array<{ event: string; payload: unknown }> = [];
+    try {
+      const session = attachAcpSession({
+        child: child as never,
+        prompt: 'Say hello',
+        cwd: process.cwd(),
+        model: 'gpt-5.4-mini',
+        mcpServers: [],
+        modelUnavailableErrorCode: 'AMR_MODEL_UNAVAILABLE',
+        send: (event, payload) => {
+          if (event === 'error') errors.push({ event, payload });
+        },
+      });
+
+      await waitForExit(child);
+      expect(session.hasFatalError()).toBe(true);
+      expect(session.completedSuccessfully()).toBe(false);
+    } finally {
+      if (child.exitCode === null) child.kill('SIGTERM');
+    }
+
+    const payload = errors[0]?.payload as {
+      message?: unknown;
+      error?: { code?: unknown };
+    };
+    expect(String(payload?.message ?? '')).toContain('Model not found');
+    expect(payload?.error?.code).toBe('AMR_MODEL_UNAVAILABLE');
+  });
+
+  it('fails clean ACP completions that produce no assistant text', async () => {
+    const child = spawnFakeVela({ FAKE_VELA_TEXT: '' });
+    const errors: Array<{ event: string; payload: unknown }> = [];
+    try {
+      const session = attachAcpSession({
+        child: child as never,
+        prompt: 'Say hello',
+        cwd: process.cwd(),
+        model: 'glm-5',
+        mcpServers: [],
+        send: (event, payload) => {
+          if (event === 'error') errors.push({ event, payload });
+        },
+      });
+
+      await waitForExit(child);
+      expect(session.hasFatalError()).toBe(true);
+      expect(session.completedSuccessfully()).toBe(false);
+    } finally {
+      if (child.exitCode === null) child.kill('SIGTERM');
+    }
+
+    const message = String(
+      (errors[0]?.payload as { message?: unknown })?.message ?? '',
+    );
+    expect(message).toContain('without producing any assistant text');
+  });
+
   it('surfaces an actionable error when the ACP child exits before initialize completes', async () => {
     const child = spawnFixtureScript(
       "process.stdout.write('not-json\\n'); setTimeout(() => process.exit(0), 20);",
@@ -285,7 +370,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
         child: child as never,
         prompt: 'Say hello',
         cwd: process.cwd(),
-        model: 'gpt-5.4-mini',
+        model: 'glm-5',
         mcpServers: [],
         send: (event, payload) => {
           if (event === 'error') errors.push({ event, payload });
@@ -293,6 +378,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
       });
 
       await waitForExit(child);
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(session.hasFatalError()).toBe(true);
       expect(session.completedSuccessfully()).toBe(false);
     } finally {
@@ -315,7 +401,7 @@ describe('AMR ACP transport — end-to-end against fake vela stub', () => {
         child: child as never,
         prompt: 'Say hello',
         cwd: process.cwd(),
-        model: 'gpt-5.4-mini',
+        model: 'glm-5',
         mcpServers: [],
         stageTimeoutMs: 25,
         send: (event, payload) => {

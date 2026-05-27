@@ -1074,6 +1074,19 @@ docker run -d \
     corepack prepare pnpm@10.33.2 --activate
     pnpm config set store-dir /pnpm-store
 
+    # The runner direct network to npmjs / nodejs.org / github releases is
+    # throttled or reset by GFW, which stalls package downloads (~20 KB/s) and
+    # breaks native-module installs: node-gyp headers (nodejs.org), and the
+    # better-sqlite3 / electron binaries (github releases). Route everything
+    # through the China npm mirror, which is fast and complete. Integrity is
+    # still verified against the lockfile, so the mirror only changes transport.
+    export npm_config_registry="https://registry.npmmirror.com"
+    export npm_config_disturl="https://npmmirror.com/mirrors/node"
+    export npm_config_electron_mirror="https://npmmirror.com/mirrors/electron/"
+    export npm_config_electron_builder_binaries_mirror="https://npmmirror.com/mirrors/electron-builder-binaries/"
+    export npm_config_better_sqlite3_binary_host_mirror="https://npmmirror.com/mirrors/better-sqlite3"
+    export PLAYWRIGHT_DOWNLOAD_HOST="https://npmmirror.com/mirrors/playwright"
+
     {
       echo "== install =="
       pnpm install --frozen-lockfile

@@ -98,8 +98,8 @@ function renderFakeAgentScript(agentId: FakeAgentId): string {
   return `#!/usr/bin/env node
 const agentId = ${JSON.stringify(agentId)};
 const args = process.argv.slice(2);
-import { mkdir, writeFile as writeFileFs } from 'node:fs/promises';
-import { join } from 'node:path';
+const { mkdir, writeFile: writeFileFs } = require('node:fs/promises');
+const { join } = require('node:path');
 
 if (args.includes('--version')) {
   process.stdout.write(agentId + '-e2e 0.0.0\\n');

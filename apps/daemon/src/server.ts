@@ -40,7 +40,12 @@ import {
   sanitizeCustomModel,
   spawnEnvForAgent,
 } from './agents.js';
-import { rememberLiveModels, resolveModelForAgent } from './runtimes/models.js';
+import {
+  getRememberedLiveModels,
+  preferFreshLiveModels,
+  rememberLiveModels,
+  resolveModelForAgent,
+} from './runtimes/models.js';
 import {
   cancelVelaLogin,
   forgetVelaLogin,
@@ -10874,7 +10879,11 @@ export async function startServer({
       } catch {
         liveModels = [];
       }
-      rememberLiveModels(def.id, liveModels);
+      const rememberedLiveModels = getRememberedLiveModels(def.id);
+      if (liveModels.length > 0) {
+        rememberLiveModels(def.id, liveModels);
+      }
+      liveModels = preferFreshLiveModels(liveModels, rememberedLiveModels);
       const liveModelIds = new Set(
         liveModels.map((candidate) => candidate?.id).filter(Boolean),
       );

@@ -1,6 +1,9 @@
 import { execAgentFile } from './shared.js';
 import type { RuntimeAgentDef, RuntimeModelOption } from '../types.js';
 
+const AMR_MODELS_TIMEOUT_MS = 10_000;
+const AMR_MODELS_RETRY_DELAYS_MS = [250, 750] as const;
+
 const PREFERRED_AMR_CHAT_MODEL_ORDER = [
   'deepseek-v4-flash',
   'deepseek-v3.2',
@@ -128,19 +131,65 @@ function orderAmrChatModels(
     .map(({ model }) => model);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function velaModelsErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? '');
+}
+
+function isRetriableVelaModelsError(error: unknown): boolean {
+  const message = velaModelsErrorMessage(error).toLowerCase();
+  return [
+    'deadline exceeded',
+    'timed out',
+    'timeout',
+    'temporarily unavailable',
+    'temporary failure',
+    'econnreset',
+    'econnrefused',
+    'enotfound',
+    '502',
+    '503',
+    '504',
+  ].some((pattern) => message.includes(pattern));
+}
+
+async function fetchVelaModelsWithRetry(
+  resolvedBin: string,
+  env: NodeJS.ProcessEnv,
+): Promise<RuntimeModelOption[]> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= AMR_MODELS_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const { stdout } = await execAgentFile(resolvedBin, ['models'], {
+        env,
+        timeout: AMR_MODELS_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      });
+      return parseVelaModels(String(stdout));
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt === AMR_MODELS_RETRY_DELAYS_MS.length ||
+        !isRetriableVelaModelsError(error)
+      ) {
+        throw error;
+      }
+      await sleep(AMR_MODELS_RETRY_DELAYS_MS[attempt] ?? 0);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(velaModelsErrorMessage(lastError));
+}
+
 export const amrAgentDef = {
   id: 'amr',
   name: 'AMR',
   bin: 'vela',
   versionArgs: ['--version'],
-  fetchModels: async (resolvedBin, env) => {
-    const { stdout } = await execAgentFile(resolvedBin, ['models'], {
-      env,
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-    });
-    return parseVelaModels(String(stdout));
-  },
+  fetchModels: fetchVelaModelsWithRetry,
   // Fail closed when Vela's live catalog is unavailable. Stale static
   // fallbacks let users select models that link/opencode no longer accepts.
   fallbackModels: [] as RuntimeModelOption[],

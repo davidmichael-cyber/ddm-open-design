@@ -120,7 +120,7 @@ const isVideoPreview = record.previewType === 'video' && record.previewVideo;
 
 <article class={`tpl-card${featured ? ' tpl-card-featured' : ''}`} data-mode={record.mode ?? 'misc'} data-scene={dataScene}>
   <span class="tpl-band" aria-hidden="true" style={`background:${accent}`}></span>
-  {featured && <span class="tpl-featured-tag">Featured</span>}
+  {featured && <span class="tpl-featured-tag">{pcopy.cardFeaturedTag}</span>}
 
   <a class="tpl-media" href={detailHref} aria-label={name}>
     {isVideoPreview ? (
@@ -138,7 +138,7 @@ const isVideoPreview = record.previewType === 'video' && record.previewVideo;
       <img
         class="tpl-media-poster"
         src={record.previewPoster}
-        alt={`${name} preview`}
+        alt={pcopy.previewImageAlt(name)}
         loading="lazy"
         decoding="async"
       />
@@ -154,13 +154,13 @@ const isVideoPreview = record.previewType === 'video' && record.previewVideo;
   </div>
 
   <a class="tpl-excerpt" href={detailHref}>
-    <span class="tpl-excerpt-head">Read full prompt →</span>
+    <span class="tpl-excerpt-head">{pcopy.cardReadFullPrompt}</span>
     <h3 class="tpl-excerpt-title">{name}</h3>
     <p class="tpl-excerpt-body">{description}</p>
   </a>
 
   <div class="tpl-actions">
-    <a class="tpl-cta" href={detailHref}>Use this template</a>
+    <a class="tpl-cta" href={detailHref}>{pcopy.cardUseTemplate}</a>
     <button
       type="button"
       class="tpl-share"
@@ -168,7 +168,7 @@ const isVideoPreview = record.previewType === 'video' && record.previewVideo;
       data-share-text={shareText}
       data-share-url={shareUrl}
       data-share-title={name}
-      aria-label={`Share ${name}`}
+      aria-label={pcopy.cardShareAria(name)}
     >
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="18" cy="5" r="3" />

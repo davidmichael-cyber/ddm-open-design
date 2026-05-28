@@ -86,14 +86,43 @@ const title = `Templates · Open Source Claude Design alternative`;
 const description =
   'Agent-built templates you can fork and ship — prototypes, slides, image and video artifacts. Apache-2.0, BYOK, run on your own keys.';
 
-const jsonLd = {
-  '@context': 'https://schema.org',
-  '@type': 'CollectionPage',
-  name: title,
-  description,
-  url: new URL('/plugins/templates/', Astro.site).toString(),
-  numberOfItems: totalCount,
-};
+/*
+ * FAQ items live on the locale-aware `PluginsCopy` so the visible
+ * accordion below the grid and the FAQPage JSON-LD entry both speak
+ * the visitor's language. Single source of truth — the structured
+ * data search engines see can't drift from the copy a visitor reads.
+ */
+const FAQ_ITEMS = pcopy.faqItems;
+
+/*
+ * Two structured-data entries: the catalog itself (CollectionPage,
+ * count + URL for crawler indexing) and the FAQ block (FAQPage with
+ * each Q + A as a Question entity). Keeping both as siblings under
+ * a single `<script type="application/ld+json">` array means we
+ * don't have to thread a second jsonLd prop through `Layout`.
+ */
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: title,
+    description,
+    url: new URL('/plugins/templates/', Astro.site).toString(),
+    numberOfItems: totalCount,
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: FAQ_ITEMS.map((item) => ({
+      '@type': 'Question',
+      name: item.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: item.answer,
+      },
+    })),
+  },
+];
 ---
 
 <Layout title={title} description={description} active="plugins" jsonLd={jsonLd}>
@@ -107,16 +136,12 @@ const jsonLd = {
 
   <header class="catalog-head tpl-hero">
     <div class="tpl-hero-text">
-      <span class="label">Open Source Claude Design</span>
-      <h1 class="display">Templates<span class="dot">.</span></h1>
-      <p class="lead">
-        Agent-built artifacts you can fork and ship — prototypes, slides, image
-        and video templates. Run them on your own keys with the local agent;
-        the prompts, posters, and example HTML are all under Apache-2.0.
-      </p>
+      <span class="label">{pcopy.templatesHeroEyebrow}</span>
+      <h1 class="display">{pcopy.tileTemplates}<span class="dot">.</span></h1>
+      <p class="lead">{pcopy.templatesHeroLead}</p>
     </div>
     <div class="tpl-hero-side">
-      <span class="tpl-counter">Total · <strong>{totalCount}</strong></span>
+      <span class="tpl-counter">{pcopy.templatesCounterLabel} · <strong>{totalCount}</strong></span>
     </div>
   </header>
 
@@ -152,80 +177,23 @@ const jsonLd = {
     ))}
   </section>
 
-  <section class="tpl-faq" aria-label="Frequently asked questions">
-    <h2 class="tpl-faq-head">FAQ</h2>
+  <section class="tpl-faq" aria-label={pcopy.faqHead}>
+    <h2 class="tpl-faq-head">{pcopy.faqHead}</h2>
     <div class="tpl-faq-list">
-      <details class="tpl-faq-item">
-        <summary>What are Open Design templates?</summary>
-        <div class="tpl-faq-body">
-          <p>
-            Bundled-plugin templates that ship with Open Design — the open
-            source Claude Design alternative. Each one is a runnable artifact:
-            a prototype, slide deck, image generator, video composition, or
-            HyperFrames motion piece. Your local agent runs the plugin against
-            its prompt and an optional example HTML, and produces a ready-to-share
-            asset on your own machine.
-          </p>
-        </div>
-      </details>
-      <details class="tpl-faq-item">
-        <summary>How are templates licensed?</summary>
-        <div class="tpl-faq-body">
-          <p>
-            Apache-2.0 across the board. Fork the prompt, adapt the
-            <code>example.html</code>, change the brand tokens — the only ask
-            is that you keep the LICENSE notice when you redistribute.
-          </p>
-        </div>
-      </details>
-      <details class="tpl-faq-item">
-        <summary>Can I run them with my own API keys?</summary>
-        <div class="tpl-faq-body">
-          <p>
-            Yes. Open Design is BYOK at every layer — your Claude / OpenAI /
-            local-model credentials never leave your machine. The marketing
-            site doesn't proxy any inference; the live previews you see on
-            the catalogue rows come from posters and Cloudflare Stream URLs
-            the templates ship with, not from a hosted runtime.
-          </p>
-        </div>
-      </details>
-      <details class="tpl-faq-item">
-        <summary>How do I contribute a template?</summary>
-        <div class="tpl-faq-body">
-          <p>
-            Open a PR against <a href="https://github.com/nexu-io/open-design/tree/main/plugins/_official" target="_blank" rel="noopener">nexu-io/open-design/plugins/_official</a> with a new folder containing <code>open-design.json</code>, <code>SKILL.md</code>, and a runnable <code>example.html</code>. The contributor guide in the repo's <code>CONTRIBUTING.md</code> walks through the manifest fields. Approved contributions land in the public catalogue and surface here automatically on the next deploy.
-          </p>
-        </div>
-      </details>
-      <details class="tpl-faq-item">
-        <summary>How is this different from Claude Design Studio?</summary>
-        <div class="tpl-faq-body">
-          <p>
-            Claude Design Studio is Anthropic's hosted product. Open Design is
-            the <strong>open source Claude Design alternative</strong> — every
-            template, prompt, and design system in this catalogue lives in a
-            public repo, runs locally against the keys you choose, and can be
-            extended through plugins anyone can author. We mirror the same
-            artifact taxonomy (prototypes, slides, images, video) so the
-            mental model carries over, but everything down to the agent
-            runtime stays on your machine.
-          </p>
-        </div>
-      </details>
-      <details class="tpl-faq-item">
-        <summary>Where do the previews come from?</summary>
-        <div class="tpl-faq-body">
-          <p>
-            Each template's manifest carries a poster URL (Cloudflare CDN)
-            and, for video templates, a Cloudflare Stream MP4. The grid
-            renders the poster as the static thumbnail and swaps in the
-            looping video on hover. Image and prototype templates show their
-            poster directly; clicking through opens the runnable
-            <code>example.html</code> on the detail page.
-          </p>
-        </div>
-      </details>
+      {FAQ_ITEMS.map((item) => (
+        <details class="tpl-faq-item">
+          <summary>{item.question}</summary>
+          {/*
+           * Answer is HTML (the same payload as the FAQPage JSON-LD
+           * entity above) so inline links + code spans + emphasis
+           * stay rendered. Astro's `set:html` is the safe equivalent
+           * of `dangerouslySetInnerHTML`; the source content is
+           * authored in this file, not user input, so XSS is not
+           * a concern.
+           */}
+          <div class="tpl-faq-body" set:html={`<p>${item.answer}</p>`} />
+        </details>
+      ))}
     </div>
   </section>
 
@@ -309,27 +277,51 @@ const jsonLd = {
    * fire to cover the case where the DOM rehydrated.
    */
   const initTemplatesPage = () => {
-    // 1) Hover-autoplay for video preview cards.
+    // 1) Hover-only video preview. The IntersectionObserver only
+    //    hydrates `data-src` into `src` lazily so the network fetch
+    //    + decoder warmup happens just-in-time; play/pause is gated
+    //    to pointer + focus interactions so we never spawn N
+    //    simultaneous decoders when the user is just scrolling past.
+    //    Without this, the grid plays every card the moment it
+    //    enters the viewport, which both reads as visually noisy and
+    //    burns mobile CPU. (Reviewer flag #3185.)
     const videos = document.querySelectorAll<HTMLVideoElement>('video[data-tpl-autoplay]:not([data-tpl-init])');
     if (videos.length > 0) {
-      const obs = new IntersectionObserver(
+      const hydrate = (v: HTMLVideoElement) => {
+        const src = v.getAttribute('data-src');
+        if (src && !v.src) v.src = src;
+      };
+      const lazyObs = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
             const v = entry.target as HTMLVideoElement;
-            if (entry.isIntersecting) {
-              const src = v.getAttribute('data-src');
-              if (src && !v.src) v.src = src;
-              v.play().catch(() => {/* autoplay policy fallback: card stays on poster */});
-            } else {
-              v.pause();
-            }
+            hydrate(v);
+            lazyObs.unobserve(v); // one-shot — once the src is set we're done with the observer
           }
         },
-        { rootMargin: '200px' },
+        { rootMargin: '300px' },
       );
       videos.forEach((v) => {
         v.setAttribute('data-tpl-init', '1');
-        obs.observe(v);
+        lazyObs.observe(v);
+        // Ensure src is hydrated before playback even if the observer
+        // fired late on a scroll-and-hover sequence.
+        const startPlayback = () => {
+          hydrate(v);
+          v.play().catch(() => {/* user-gesture / autoplay-policy fallback: card stays on poster */});
+        };
+        const stopPlayback = () => {
+          v.pause();
+        };
+        // Find the parent card (anchor wrapping the media) so hovering
+        // anywhere on the preview frame, not just the video pixels,
+        // triggers playback. Falls back to the video element itself.
+        const host = v.closest('.tpl-media') ?? v;
+        host.addEventListener('pointerenter', startPlayback);
+        host.addEventListener('pointerleave', stopPlayback);
+        host.addEventListener('focusin', startPlayback);
+        host.addEventListener('focusout', stopPlayback);
       });
     }
 

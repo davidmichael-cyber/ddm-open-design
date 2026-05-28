@@ -126,6 +126,24 @@ export interface PluginsCopy {
   shareCopyLink: string;
   shareJumpTo: string;
   shareTemplate: (vars: { title: string; url: string }) => string;
+
+  /*
+   * Templates page chrome (YouMind-shape grid, PR #3185). Hero is
+   * eyebrow + static H1 + lead + a counter chip; cards carry
+   * Featured tag, "Read full prompt" excerpt header, primary CTA,
+   * and an `aria-label` for the share trigger. FAQ ships its 6
+   * Q&A pairs as paired arrays so the visible accordion + the
+   * FAQPage JSON-LD share a single source of truth.
+   */
+  templatesHeroEyebrow: string;
+  templatesHeroLead: string;
+  templatesCounterLabel: string;
+  cardFeaturedTag: string;
+  cardReadFullPrompt: string;
+  cardUseTemplate: string;
+  cardShareAria: (title: string) => string;
+  faqHead: string;
+  faqItems: ReadonlyArray<{ question: string; answer: string }>;
 }
 
 const en: PluginsCopy = {
@@ -281,6 +299,49 @@ const en: PluginsCopy = {
 ✨ Local-first · BYOK · your agent does the design.
 
 → ${url}`,
+
+  // Templates grid (PR #3185)
+  templatesHeroEyebrow: 'Open Source Claude Design',
+  templatesHeroLead:
+    'Agent-built artifacts you can fork and ship — prototypes, slides, image and video templates. Run them on your own keys with the local agent; the prompts, posters, and example HTML are all under Apache-2.0.',
+  templatesCounterLabel: 'Total',
+  cardFeaturedTag: 'Featured',
+  cardReadFullPrompt: 'Read full prompt →',
+  cardUseTemplate: 'Use this template',
+  cardShareAria: (title) => `Share ${title}`,
+  faqHead: 'FAQ',
+  faqItems: [
+    {
+      question: 'What are Open Design templates?',
+      answer:
+        'Bundled-plugin templates that ship with Open Design — the open source Claude Design alternative. Each one is a runnable artifact: a prototype, slide deck, image generator, video composition, or HyperFrames motion piece. Your local agent runs the plugin against its prompt and an optional example HTML, and produces a ready-to-share asset on your own machine.',
+    },
+    {
+      question: 'How are templates licensed?',
+      answer:
+        'Apache-2.0 across the board. Fork the prompt, adapt the <code>example.html</code>, change the brand tokens — the only ask is that you keep the LICENSE notice when you redistribute.',
+    },
+    {
+      question: 'Can I run them with my own API keys?',
+      answer:
+        "Yes. Open Design is BYOK at every layer — your Claude / OpenAI / local-model credentials never leave your machine. The marketing site doesn't proxy any inference; the live previews you see on the catalogue rows come from posters and Cloudflare Stream URLs the templates ship with, not from a hosted runtime.",
+    },
+    {
+      question: 'How do I contribute a template?',
+      answer:
+        'Open a PR against <a href="https://github.com/nexu-io/open-design/tree/main/plugins/_official" target="_blank" rel="noopener">nexu-io/open-design/plugins/_official</a> with a new folder containing <code>open-design.json</code>, <code>SKILL.md</code>, and a runnable <code>example.html</code>. The contributor guide in the repo&rsquo;s <code>CONTRIBUTING.md</code> walks through the manifest fields. Approved contributions land in the public catalogue and surface here automatically on the next deploy.',
+    },
+    {
+      question: 'How is this different from Claude Design Studio?',
+      answer:
+        "Claude Design Studio is Anthropic's hosted product. Open Design is the <strong>open source Claude Design alternative</strong> — every template, prompt, and design system in this catalogue lives in a public repo, runs locally against the keys you choose, and can be extended through plugins anyone can author. We mirror the same artifact taxonomy (prototypes, slides, images, video) so the mental model carries over, but everything down to the agent runtime stays on your machine.",
+    },
+    {
+      question: 'Where do the previews come from?',
+      answer:
+        'Each template&rsquo;s manifest carries a poster URL (Cloudflare CDN) and, for video templates, a Cloudflare Stream MP4. The grid renders the poster as the static thumbnail and swaps in the looping video on hover. Image and prototype templates show their poster directly; clicking through opens the runnable <code>example.html</code> on the detail page.',
+    },
+  ],
 };
 
 const overrides: Partial<Record<LandingLocaleCode, Partial<PluginsCopy>>> = {

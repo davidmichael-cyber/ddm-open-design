@@ -53,6 +53,24 @@ describe('preview comment attachment helpers', () => {
     ]);
   });
 
+  it('keeps saved comment images in send payloads even when the note is empty', () => {
+    const [attachment] = commentsToAttachments([
+      comment({
+        id: 'c1',
+        note: '',
+        attachments: [{ path: 'uploads/reference.png', name: 'reference.png' }],
+      }),
+    ]);
+
+    expect(attachment).toMatchObject({
+      id: 'c1',
+      comment: 'Use the attached image as the comment reference.',
+      imageAttachments: [{ path: 'uploads/reference.png', name: 'reference.png' }],
+    });
+    expect(messageContentWithCommentAttachments('', attachment ? [attachment] : []))
+      .toContain('image.1: uploads/reference.png | reference.png');
+  });
+
   it('merges saved preview comment image attachments without duplicates', () => {
     expect(
       mergePreviewCommentAttachments(

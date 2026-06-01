@@ -316,6 +316,39 @@ function designSystemFeedbackAttachments(
     }));
 }
 
+function chatAttachmentsFromPreviewCommentImages(
+  images: PreviewCommentAttachment[] | undefined,
+): ChatAttachment[] {
+  if (!Array.isArray(images)) return [];
+  const seen = new Set<string>();
+  const out: ChatAttachment[] = [];
+  for (const image of images) {
+    const path = image.path.trim();
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    out.push({
+      path,
+      name: image.name.trim() || path.split('/').pop() || path,
+      kind: 'image',
+    });
+  }
+  return out;
+}
+
+function mergeChatAttachments(...groups: ChatAttachment[][]): ChatAttachment[] {
+  const seen = new Set<string>();
+  const out: ChatAttachment[] = [];
+  for (const group of groups) {
+    for (const attachment of group) {
+      const path = attachment.path.trim();
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      out.push({ ...attachment, path });
+    }
+  }
+  return out;
+}
+
 function designSystemNeedsWorkPrompt(
   sectionTitle: string,
   feedback: string,
@@ -1843,6 +1876,7 @@ export function ProjectView({
       let uploadedAttachments: PreviewCommentAttachment[] | undefined;
       if (images.length > 0) {
         const result = await uploadProjectFiles(project.id, images);
+        if (result.uploaded.length !== images.length) return null;
         uploadedAttachments = result.uploaded.map((file) => ({ path: file.path, name: file.name }));
       }
       const existing = previewComments.find(
@@ -2394,11 +2428,17 @@ export function ProjectView({
         attachments.length === 0 &&
         commentAttachments.length === 0
       ) return false;
+      const effectiveAttachments = mergeChatAttachments(
+        attachments,
+        ...commentAttachments.map((attachment) =>
+          chatAttachmentsFromPreviewCommentImages(attachment.imageAttachments),
+        ),
+      );
       if (!retryTarget && meta?.queueOnly) {
         queueChatSendForCurrentConversation({
           conversationId: activeConversationId,
           prompt,
-          attachments,
+          attachments: effectiveAttachments,
           commentAttachments,
           meta: { ...(meta ?? {}), sessionMode: runSessionMode },
         });
@@ -2408,7 +2448,7 @@ export function ProjectView({
         queueChatSendForCurrentConversation({
           conversationId: activeConversationId,
           prompt,
-          attachments,
+          attachments: effectiveAttachments,
           commentAttachments,
           meta: { ...(meta ?? {}), sessionMode: runSessionMode },
         });
@@ -2427,11 +2467,16 @@ export function ProjectView({
         ...(meta?.appliedPluginSnapshot
           ? { appliedPluginSnapshot: meta.appliedPluginSnapshot }
           : {}),
-        attachments: attachments.length > 0 ? attachments : undefined,
+        attachments: effectiveAttachments.length > 0 ? effectiveAttachments : undefined,
         commentAttachments: commentAttachments.length > 0 ? commentAttachments : undefined,
       };
-      const runAttachments = userMsg.attachments ?? [];
       const runCommentAttachments = userMsg.commentAttachments ?? [];
+      const runAttachments = mergeChatAttachments(
+        userMsg.attachments ?? [],
+        ...runCommentAttachments.map((attachment) =>
+          chatAttachmentsFromPreviewCommentImages(attachment.imageAttachments),
+        ),
+      );
       const selectedAgent =
         config.mode === 'daemon' && config.agentId
           ? agentsById.get(config.agentId)
@@ -3236,7 +3281,14 @@ export function ProjectView({
         return;
       }
       for (let i = 0; i < commentAttachments.length; i++) {
-        await handleSend('', i === 0 ? uploaded : [], [commentAttachments[i]!], { queueOnly: true });
+        const commentAttachment = commentAttachments[i]!;
+        const savedImages = chatAttachmentsFromPreviewCommentImages(commentAttachment.imageAttachments);
+        await handleSend(
+          '',
+          mergeChatAttachments(i === 0 ? uploaded : [], savedImages),
+          [commentAttachment],
+          { queueOnly: true },
+        );
       }
     },
     [handleSend, project.id],

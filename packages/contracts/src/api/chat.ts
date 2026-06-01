@@ -1,5 +1,6 @@
 import type { ProjectFile } from './files';
 import type {
+  PreviewCommentAttachment,
   PreviewCommentMember,
   PreviewCommentPosition,
   PreviewCommentSelectionKind,
@@ -258,6 +259,7 @@ export interface ChatCommentAttachment {
   screenshotPath?: string;
   markKind?: PreviewVisualMarkKind;
   intent?: string;
+  imageAttachments?: PreviewCommentAttachment[];
   source?: 'saved-comment' | 'board-batch';
 }
 

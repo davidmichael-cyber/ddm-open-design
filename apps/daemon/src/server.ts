@@ -834,7 +834,8 @@ export function normalizeCommentAttachments(input) {
       const screenshotPath = cleanString(raw.screenshotPath);
       const markKind = normalizeVisualMarkKind(raw.markKind);
       const intent = compactString(raw.intent, 220);
-      const comment = cleanString(raw.comment) || intent;
+      const imageAttachments = normalizePreviewCommentImageAttachments(raw.imageAttachments);
+      const comment = cleanString(raw.comment) || intent || imageOnlyCommentFallback(imageAttachments.length);
       const selectionKind =
         raw.selectionKind === 'visual' ? 'visual' : raw.selectionKind === 'pod' ? 'pod' : 'element';
       if (!filePath || !elementId || !comment) return null;
@@ -871,6 +872,7 @@ export function normalizeCommentAttachments(input) {
         intent: selectionKind === 'visual'
           ? intent || visualAnnotationIntent(markKind)
           : undefined,
+        imageAttachments: imageAttachments.length > 0 ? imageAttachments : undefined,
         source: raw.source === 'board-batch' ? 'board-batch' : 'saved-comment',
       };
     })
@@ -921,6 +923,13 @@ export function renderCommentAttachmentHint(commentAttachments) {
         if (memberStyle) lines.push(`member.${memberIndex + 1}.computedStyle: ${memberStyle}`);
       });
     }
+    const imageAttachments = normalizePreviewCommentImageAttachments(item.imageAttachments);
+    if (imageAttachments.length > 0) {
+      lines.push(`imageAttachments: ${imageAttachments.length}`);
+      imageAttachments.forEach((attachment, attachmentIndex) => {
+        lines.push(`image.${attachmentIndex + 1}: ${attachment.path} | ${attachment.name}`);
+      });
+    }
   }
   lines.push('</attached-preview-comments>');
   return lines.join('\n');
@@ -928,6 +937,29 @@ export function renderCommentAttachmentHint(commentAttachments) {
 
 function cleanString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizePreviewCommentImageAttachments(input) {
+  if (!Array.isArray(input)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const path = cleanString(item.path);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const name = cleanString(item.name) || path.split('/').pop() || path;
+    out.push({ path, name });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+function imageOnlyCommentFallback(count) {
+  if (count <= 0) return '';
+  return count > 1
+    ? `Use the ${count} attached images as the comment reference.`
+    : 'Use the attached image as the comment reference.';
 }
 
 function normalizeVisualMarkKind(value) {

@@ -2786,6 +2786,10 @@ describe('FileViewer tweaks toolbar', () => {
     );
 
     fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+    const sideImageLink = await screen.findByTestId('comment-side-attachment');
+    expect(sideImageLink.getAttribute('href')).toBe('/api/projects/project-1/raw/uploads/ref-a.png');
+    expect(sideImageLink.querySelector('img')?.getAttribute('src')).toBe('/api/projects/project-1/raw/uploads/ref-a.png');
+
     fireEvent.click(screen.getByText('Use this screenshot').closest('[data-testid="comment-side-item"]')!);
 
     const imageLink = await screen.findByTestId('comment-popover-existing-image');

@@ -121,6 +121,7 @@ import {
 import type {
   ChatCommentAttachment,
   PreviewComment,
+  PreviewCommentAttachment,
   PreviewCommentMember,
   PreviewCommentTarget,
 } from '../types';
@@ -2294,9 +2295,11 @@ export function CommentSidePanel({
                       <a
                         key={attachment.path}
                         className="comment-side-attachment"
+                        data-testid="comment-side-attachment"
                         href={url}
                         target="_blank"
                         rel="noopener noreferrer"
+                        aria-label={attachment.name}
                         title={attachment.name}
                         onClick={(event) => event.stopPropagation()}
                       >
@@ -4392,6 +4395,8 @@ function HtmlViewer({
   // (uploaded on send) with object-URL thumbnails for preview/remove, mirroring
   // the markup overlay's image tray.
   const [boardImages, setBoardImages] = useState<File[]>([]);
+  const [activeCommentExistingAttachments, setActiveCommentExistingAttachments] =
+    useState<PreviewCommentAttachment[]>([]);
   const [boardImagePreviews, setBoardImagePreviews] = useState<{ file: File; url: string }[]>([]);
   const [boardPreviewIndex, setBoardPreviewIndex] = useState<number | null>(null);
   const [sendingBoardBatch, setSendingBoardBatch] = useState(false);
@@ -5054,6 +5059,7 @@ function HtmlViewer({
     setHoveredCommentTarget(null);
     setLiveCommentTargets(new Map());
     setCommentDraft('');
+    setActiveCommentExistingAttachments([]);
     setActiveInspectTarget(null);
     setInspectOverrides({});
     setInspectSavedAt(null);
@@ -5216,6 +5222,7 @@ function HtmlViewer({
           setActivePreviewCommentId(null);
           setCommentDraft('');
           setQueuedBoardNotes([]);
+          setActiveCommentExistingAttachments([]);
         }
         return;
       }
@@ -5252,6 +5259,7 @@ function HtmlViewer({
         setActivePreviewCommentId(null);
         setQueuedBoardNotes([]);
         setCommentDraft('');
+        setActiveCommentExistingAttachments([]);
         setStrokePoints([]);
       }
     }
@@ -6163,6 +6171,7 @@ function HtmlViewer({
     setCommentDraft('');
     setQueuedBoardNotes([]);
     setBoardImages([]);
+    setActiveCommentExistingAttachments([]);
     setBoardPreviewIndex(null);
     setStrokePoints([]);
   }
@@ -6297,18 +6306,49 @@ function HtmlViewer({
     setCommentDraft('');
   }
 
+  function currentActiveComposerComment(): PreviewComment | null {
+    if (!activePreviewCommentId) return null;
+    return previewComments.find((comment) => (
+      comment.id === activePreviewCommentId &&
+      comment.filePath === file.name &&
+      comment.status === 'open'
+    )) ?? null;
+  }
+
+  function currentActiveComposerAttachments(): PreviewCommentAttachment[] {
+    return currentActiveComposerComment()?.attachments ?? activeCommentExistingAttachments;
+  }
+
   async function sendBoardBatch() {
     if (!activeCommentTarget || !onSendBoardCommentAttachments) return;
     const nextNotes = [...queuedBoardNotes];
     if (commentDraft.trim()) nextNotes.push(commentDraft.trim());
-    if (nextNotes.length === 0 && boardImages.length === 0) return;
+    if (nextNotes.length === 0 && boardImages.length === 0) {
+      const existingComment = currentActiveComposerComment();
+      if (existingComment) {
+        setSendingBoardBatch(true);
+        try {
+          await onSendBoardCommentAttachments(commentsToAttachments([existingComment]));
+          clearBoardComposer();
+        } finally {
+          setSendingBoardBatch(false);
+        }
+      }
+      return;
+    }
     setSendingBoardBatch(true);
     try {
+      const existingAttachments = currentActiveComposerAttachments();
+      const attachments = buildBoardCommentAttachments({
+        target: targetFromSnapshot(activeCommentTarget),
+        notes: nextNotes,
+      }).map((attachment) => (
+        existingAttachments.length > 0
+          ? { ...attachment, imageAttachments: existingAttachments }
+          : attachment
+      ));
       await onSendBoardCommentAttachments(
-        buildBoardCommentAttachments({
-          target: targetFromSnapshot(activeCommentTarget),
-          notes: nextNotes,
-        }),
+        attachments,
         boardImages,
       );
       clearBoardComposer();
@@ -6320,7 +6360,7 @@ function HtmlViewer({
   async function savePersistentComment() {
     if (!activeCommentTarget || !onSavePreviewComment) return;
     // Allow saving when there is text OR an attached image (image-only notes).
-    if (!commentDraft.trim() && boardImages.length === 0) return;
+    if (!commentDraft.trim() && boardImages.length === 0 && currentActiveComposerAttachments().length === 0) return;
     const isFreePin = activeCommentTarget.elementId.startsWith('pin-');
     setSendingBoardBatch(true);
     try {
@@ -6332,6 +6372,7 @@ function HtmlViewer({
       );
       if (saved) {
         clearBoardComposer();
+        setActiveCommentExistingAttachments(saved.attachments ?? []);
         setBoardMode(true);
         setCommentCreateMode(true);
         setCommentPanelOpen(true);
@@ -6802,6 +6843,8 @@ function HtmlViewer({
   const activeComposerComment = activePreviewCommentId
     ? visibleSideComments.find((comment) => comment.id === activePreviewCommentId) ?? null
     : null;
+  const activeComposerAttachments =
+    activeComposerComment?.attachments ?? activeCommentExistingAttachments;
   const commentComposer = boardMode && activeCommentTarget && activeCommentTargetVisible ? (
     <BoardComposerPopover
       target={activeCommentTarget}
@@ -6818,10 +6861,10 @@ function HtmlViewer({
       onSendBatch={() => { fireCommentPopoverClick('send_to_chat'); return sendBoardBatch(); }}
       images={boardImagePreviews}
       existingImages={
-        activeComposerComment?.attachments?.map((attachment) => ({
+        activeComposerAttachments.map((attachment) => ({
           url: projectRawUrl(projectId, attachment.path),
           name: attachment.name,
-        })) ?? []
+        }))
       }
       onAttachImages={addBoardImages}
       onRemoveImage={removeBoardImage}
@@ -6936,6 +6979,7 @@ function HtmlViewer({
         setActivePreviewCommentId(comment.id);
         setCommentDraft(comment.note);
         setQueuedBoardNotes([]);
+        setActiveCommentExistingAttachments(comment.attachments ?? []);
         setBoardMode(true);
         setCommentCreateMode(true);
         setCommentPanelOpen(true);
@@ -7608,6 +7652,7 @@ function HtmlViewer({
                   setActivePreviewCommentId(comment.id);
                   setCommentDraft(comment.note);
                   setQueuedBoardNotes([]);
+                  setActiveCommentExistingAttachments(comment.attachments ?? []);
                 }}
               />
             ) : null}

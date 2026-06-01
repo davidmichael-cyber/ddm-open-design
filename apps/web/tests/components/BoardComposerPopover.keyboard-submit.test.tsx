@@ -27,6 +27,8 @@ function renderPopover({
   sending = false,
   selectionKind = 'element',
   targetOverride = {},
+  draft = 'Tighten this heading',
+  existingImages = [],
   bounds,
 }: {
   onSaveComment?: () => void;
@@ -34,13 +36,15 @@ function renderPopover({
   sending?: boolean;
   selectionKind?: PreviewCommentSnapshot['selectionKind'];
   targetOverride?: Partial<PreviewCommentSnapshot>;
+  draft?: string;
+  existingImages?: { url: string; name: string }[];
   bounds?: { width: number; height: number; scrollLeft?: number; scrollTop?: number };
 } = {}) {
   return render(
     <BoardComposerPopover
       target={{ ...target, ...targetOverride, selectionKind }}
       existing={null}
-      draft="Tighten this heading"
+      draft={draft}
       notes={[]}
       onDraft={() => {}}
       onAddDraft={() => {}}
@@ -49,6 +53,7 @@ function renderPopover({
       onSaveComment={onSaveComment}
       onSendBatch={onSendBatch}
       onRemoveMember={() => {}}
+      existingImages={existingImages}
       sending={sending}
       t={((key: string) => String(key)) as never}
       bounds={bounds}
@@ -75,6 +80,23 @@ describe('BoardComposerPopover keyboard submit', () => {
 
     fireEvent.keyDown(screen.getByTestId('comment-popover-input'), { key: 'Enter' });
 
+    expect(onSendBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows existing saved images to submit without typed text', () => {
+    const onSaveComment = vi.fn();
+    const onSendBatch = vi.fn();
+    renderPopover({
+      draft: '',
+      existingImages: [{ url: '/api/projects/project-1/raw/uploads/ref.png', name: 'ref.png' }],
+      onSaveComment,
+      onSendBatch,
+    });
+
+    fireEvent.keyDown(screen.getByTestId('comment-popover-input'), { key: 'Enter' });
+    expect(onSaveComment).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('comment-add-send'));
     expect(onSendBatch).toHaveBeenCalledTimes(1);
   });
 

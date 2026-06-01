@@ -270,6 +270,27 @@ describe('preview comment agent payload', () => {
     expect(hint).toContain('comment: Make the headline shorter');
   });
 
+  it('keeps image attachments in saved comment payloads without requiring a note', () => {
+    const normalized = normalizeCommentAttachments([
+      commentAttachment({
+        id: 'c1',
+        comment: '',
+        imageAttachments: [
+          { path: 'uploads/reference.png', name: 'reference.png' },
+        ],
+      }),
+    ]);
+
+    const hint = renderCommentAttachmentHint(normalized);
+
+    expect(normalized[0]).toMatchObject({
+      comment: 'Use the attached image as the comment reference.',
+      imageAttachments: [{ path: 'uploads/reference.png', name: 'reference.png' }],
+    });
+    expect(hint).toContain('imageAttachments: 1');
+    expect(hint).toContain('image.1: uploads/reference.png | reference.png');
+  });
+
   it('renders pod attachments with grouped member context', () => {
     const normalized = normalizeCommentAttachments([
       commentAttachment({

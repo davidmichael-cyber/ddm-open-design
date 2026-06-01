@@ -141,6 +141,7 @@ export function commentToAttachment(
   order: number,
 ): ChatCommentAttachment {
   const podMembers = normalizeMembers(comment.podMembers);
+  const imageAttachments = mergePreviewCommentAttachments(undefined, comment.attachments);
   return {
     id: comment.id,
     order,
@@ -148,7 +149,7 @@ export function commentToAttachment(
     elementId: comment.elementId,
     selector: comment.selector,
     label: comment.label,
-    comment: comment.note,
+    comment: comment.note.trim() || imageOnlyCommentFallback(imageAttachments.length),
     currentText: trimContextText(comment.text),
     pagePosition: normalizePosition(comment.position),
     htmlHint: trimHtmlHint(comment.htmlHint),
@@ -163,6 +164,7 @@ export function commentToAttachment(
               : 0)
         : undefined,
     podMembers: podMembers.length > 0 ? podMembers : undefined,
+    imageAttachments: imageAttachments.length > 0 ? imageAttachments : undefined,
     source: 'saved-comment',
   };
 }
@@ -363,9 +365,23 @@ function renderCommentAttachmentContext(commentAttachments: ChatCommentAttachmen
         if (memberStyle) lines.push(`member.${memberIndex + 1}.computedStyle: ${memberStyle}`);
       });
     }
+    const imageAttachments = mergePreviewCommentAttachments(undefined, item.imageAttachments);
+    if (imageAttachments.length > 0) {
+      lines.push(`imageAttachments: ${imageAttachments.length}`);
+      imageAttachments.forEach((attachment, attachmentIndex) => {
+        lines.push(`image.${attachmentIndex + 1}: ${attachment.path} | ${attachment.name}`);
+      });
+    }
   });
   lines.push('</attached-preview-comments>');
   return lines.join('\n');
+}
+
+function imageOnlyCommentFallback(count: number): string {
+  if (count <= 0) return '';
+  return count > 1
+    ? `Use the ${count} attached images as the comment reference.`
+    : 'Use the attached image as the comment reference.';
 }
 
 function visualAnnotationIntent(markKind: PreviewVisualMarkKind): string {

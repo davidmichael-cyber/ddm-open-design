@@ -743,6 +743,8 @@ export function ProjectView({
     || failedMessagesConversationId === activeConversationId
     || currentConversationAwaitingActiveRunAttach;
   const currentConversationActionDisabled = currentConversationBusy || currentConversationSendDisabled;
+  const currentConversationQueueDisabled = currentConversationLoading
+    || failedMessagesConversationId === activeConversationId;
   const currentConversationQueuedItems = activeConversationId
     ? queuedChatSends
         .filter((item) => item.conversationId === activeConversationId)
@@ -3064,15 +3066,15 @@ export function ProjectView({
 
   const handleSendBoardCommentAttachments = useCallback(
     async (commentAttachments: ChatCommentAttachment[]) => {
-      // Match ChatComposer: while a run is in flight we queue instead of blocking.
-      if (currentConversationSendDisabled || commentAttachments.length === 0) return;
+      if (currentConversationQueueDisabled || commentAttachments.length === 0) return false;
       setWorkspaceFocused(false);
       setCommentInspectorActive(false);
       await handleSend('', [], commentAttachments);
+      return true;
     },
-    [handleSend, currentConversationSendDisabled],
+    [handleSend, currentConversationQueueDisabled],
   );
-  const commentQueueOnSend = currentConversationBusy && !currentConversationSendDisabled;
+  const commentQueueOnSend = currentConversationBusy && !currentConversationQueueDisabled;
 
   const handleContinueRemainingTasks = useCallback(
     (_assistantMessage: ChatMessage, todos: TodoItem[]) => {
@@ -4518,6 +4520,13 @@ export function ProjectView({
                 onProjectChange({ ...project, skillId });
               }}
               activePluginSnapshot={activePluginSnapshot}
+              currentDesignSystemId={project.designSystemId}
+              onActiveDesignSystemChange={(updatedProject) => {
+                onProjectChange(updatedProject);
+              }}
+              onShowToast={(message) => {
+                setProjectActionsToast({ message, details: null });
+              }}
               onCollapse={() => setWorkspaceFocused(true)}
             />
           ) : (
@@ -4559,7 +4568,7 @@ export function ProjectView({
           onExportAsPptx={handleExportAsPptx}
           streaming={currentConversationActionDisabled}
           commentQueueOnSend={commentQueueOnSend}
-          commentSendDisabled={currentConversationSendDisabled}
+          commentSendDisabled={currentConversationQueueDisabled}
           openRequest={openRequest}
           liveArtifactEvents={liveArtifactEvents}
           designSystemActivityEvents={designSystemActivityEvents}
@@ -4584,6 +4593,10 @@ export function ProjectView({
           githubConnected={githubConnected}
           commentPortalId={commentInspectorPortalId}
           onCommentModeChange={setCommentInspectorActive}
+          messages={messages}
+          artifactHtml={artifact?.html}
+          conversationError={error}
+          onRetry={handleRetry}
         />
       </div>
       {projectActionsToast ? (

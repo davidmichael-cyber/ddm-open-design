@@ -13,6 +13,7 @@ import {
   removeAttachedComment,
   targetFromSnapshot,
 } from '../src/comments';
+import type { PreviewCommentSnapshot } from '../src/comments';
 import type { ChatMessage, PreviewComment } from '../src/types';
 
 describe('preview comment attachment helpers', () => {

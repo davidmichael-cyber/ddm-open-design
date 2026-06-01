@@ -49,7 +49,7 @@ import {
   fetchSkills,
   uploadProjectFiles,
 } from './providers/registry';
-import { RUNS_CHANGED_EVENT, listProjectRuns } from './providers/daemon';
+import { RUNS_CHANGED_EVENT, fetchAmrModels, listProjectRuns } from './providers/daemon';
 import { navigate, useRoute } from './router';
 import {
   fetchDaemonConfig,
@@ -212,6 +212,7 @@ function AppInner() {
   const [integrationInitialTab, setIntegrationInitialTab] = useState<IntegrationTab>('mcp');
   const [daemonLive, setDaemonLive] = useState(false);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const amrAgentAvailable = agents.some((agent) => agent.id === 'amr' && agent.available);
   // Functional skills (capabilities the agent invokes mid-task) — stays
   // small and lives under the Settings → Skills surface.
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -381,6 +382,37 @@ function AppInner() {
       // Daemon down or transient network — not worth surfacing.
     });
   }, [activeProjectId, activeFileName]);
+
+  useEffect(() => {
+    if (!daemonLive || !amrAgentAvailable) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: number | null = null;
+    const maxPresetPolls = 8;
+    const pollDelayMs = 1_000;
+
+    const applyAmrModels = async () => {
+      const result = await fetchAmrModels();
+      if (cancelled || !result || result.models.length === 0) return;
+      setAgents((current) => current.map((agent) =>
+        agent.id === 'amr'
+          ? { ...agent, models: result.models, modelsSource: 'live' }
+          : agent,
+      ));
+      if (result.source === 'preset' && attempts < maxPresetPolls) {
+        attempts += 1;
+        timer = window.setTimeout(() => {
+          void applyAmrModels();
+        }, pollDelayMs);
+      }
+    };
+
+    void applyAmrModels();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [amrAgentAvailable, daemonLive]);
 
   // Bootstrap — detect daemon, then fan out independent fetches so each
   // entry-view tab can render the moment its own data lands. Earlier this

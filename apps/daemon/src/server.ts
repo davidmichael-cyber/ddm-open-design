@@ -6157,11 +6157,58 @@ export async function startServer({
   // The vela CLI owns the device-authorization UX (URL + code + browser open);
   // these routes only surface enough state for Open Design's Settings card to
   // show login status and trigger a login from a button.
+  async function resolveAmrModelProbe() {
+    const appConfig = await readAppConfig(RUNTIME_DATA_DIR);
+    const configuredEnv = agentCliEnvForAgent(appConfig.agentCliEnv, 'amr');
+    const def = getAgentDef('amr');
+    if (!def) throw new Error('AMR runtime definition is missing');
+    const agentLaunch = resolveAgentLaunch(def, configuredEnv);
+    const launchPath = agentLaunch.launchPath ?? agentLaunch.selectedPath;
+    if (!launchPath) throw new Error('AMR vela binary could not be resolved');
+    const env = applyAgentLaunchEnv(
+      spawnEnvForAgent(
+        def.id,
+        {
+          ...process.env,
+          ...(def.env || {}),
+        },
+        configuredEnv,
+        undefined,
+        { resolvedBin: agentLaunch.selectedPath },
+      ),
+      agentLaunch,
+    );
+    return { launchPath, env, configuredEnv };
+  }
+
+  app.get('/api/amr/models', async (_req, res) => {
+    try {
+      const probe = await resolveAmrModelProbe();
+      const response = await amrModelLoadingCache.get({
+        fetchPreset: () => fetchVelaPresetModels(probe.launchPath, probe.env),
+        fetchRemote: () => fetchVelaRemoteModelsWithRetry(probe.launchPath, probe.env),
+      });
+      res.json(response);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get('/api/integrations/vela/status', async (_req, res) => {
     try {
       const appConfig = await readAppConfig(RUNTIME_DATA_DIR);
       const configuredEnv = agentCliEnvForAgent(appConfig.agentCliEnv, 'amr');
-      res.json(readVelaLoginStatus(mergeVelaEnv(process.env, configuredEnv)));
+      const status = readVelaLoginStatus(mergeVelaEnv(process.env, configuredEnv));
+      if (status.loggedIn) {
+        void resolveAmrModelProbe()
+          .then((probe) => {
+            amrModelLoadingCache.warm(() =>
+              fetchVelaRemoteModelsWithRetry(probe.launchPath, probe.env),
+            );
+          })
+          .catch((err) => console.warn('[amr] model cache warm failed', err));
+      }
+      res.json(status);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

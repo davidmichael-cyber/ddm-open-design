@@ -309,26 +309,26 @@ Planned File Changes:
 
 ## Plan
 
-- [ ] Step 1: Daemon AMR model contract and cache
-  - [ ] Substep 1.1 Implement: Add AMR preset/remote JSON parsers and fetch
+- [x] Step 1: Daemon AMR model contract and cache
+  - [x] Substep 1.1 Implement: Add AMR preset/remote JSON parsers and fetch
     helpers in the AMR runtime area.
-  - [ ] Substep 1.2 Implement: Add process-local loading cache with in-flight
+  - [x] Substep 1.2 Implement: Add process-local loading cache with in-flight
     remote refresh coalescing and stale-while-refresh behavior.
-  - [ ] Substep 1.3 Implement: Add `GET /api/amr/models` and Vela status warm
+  - [x] Substep 1.3 Implement: Add `GET /api/amr/models` and Vela status warm
     trigger.
-  - [ ] Substep 1.4 Verify: Add fake Vela support for new commands.
-  - [ ] Substep 1.5 Verify: Add daemon tests for parser, endpoint/cache, and
+  - [x] Substep 1.4 Verify: Add fake Vela support for new commands.
+  - [x] Substep 1.5 Verify: Add daemon tests for parser, endpoint/cache, and
     remote-only execution preflight.
-- [ ] Step 2: Frontend AMR picker integration
-  - [ ] Substep 2.1 Implement: Add web provider helper for `/api/amr/models`.
-  - [ ] Substep 2.2 Implement: Wire AMR model pickers to endpoint results while
+- [x] Step 2: Frontend AMR picker integration
+  - [x] Substep 2.1 Implement: Add web provider helper for `/api/amr/models`.
+  - [x] Substep 2.2 Implement: Wire AMR model pickers to endpoint results while
     preserving `/api/agents` compatibility.
-  - [ ] Substep 2.3 Implement: Add bounded polling while `source === "preset"`.
-  - [ ] Substep 2.4 Verify: Add focused web tests for preset-to-remote
+  - [x] Substep 2.3 Implement: Add bounded polling while `source === "preset"`.
+  - [x] Substep 2.4 Verify: Add focused web tests for preset-to-remote
     replacement and polling cap.
 - [ ] Step 3: Regression validation
-  - [ ] Substep 3.1 Verify: Run daemon AMR tests.
-  - [ ] Substep 3.2 Verify: Run focused web tests.
+  - [x] Substep 3.1 Verify: Run daemon AMR tests.
+  - [x] Substep 3.2 Verify: Run focused web tests.
   - [ ] Substep 3.3 Verify: Run `pnpm guard` and `pnpm typecheck`.
 
 ## Notes
@@ -337,8 +337,32 @@ Planned File Changes:
 
 ### Implementation
 
-<!-- Files created/modified, decisions made during coding, deviations from design -->
+- `packages/contracts/src/api/registry.ts` - added `AmrModelsResponse` and
+  `source: "preset" | "remote"` contract types.
+- `apps/daemon/src/runtimes/defs/amr.ts` - added Vela preset/list JSON parsing
+  and fetch helpers; AMR authoritative `fetchModels` now uses
+  `vela model list --format json`.
+- `apps/daemon/src/runtimes/amr-model-cache.ts` - added process-local AMR
+  loading cache with in-flight remote coalescing and stale-while-refresh
+  behavior.
+- `apps/daemon/src/server.ts` - added `GET /api/amr/models` and status-route
+  remote cache warming when Vela reports `loggedIn: true`.
+- `apps/daemon/tests/fixtures/fake-vela.mjs` - added `model preset/list
+  --format json` fixture support.
+- `apps/web/src/providers/daemon.ts` and `apps/web/src/App.tsx` - added
+  `/api/amr/models` fetching and app-level bounded polling that updates AMR
+  models for onboarding, Settings, and inline switcher surfaces while keeping
+  `/api/agents` compatibility.
+- Deviation: focused web coverage verifies the provider helper. The polling is
+  implemented at the app-level merge point so all AMR picker surfaces share it.
 
 ### Verification
 
-<!-- How the feature was verified: tests written, manual testing steps, results -->
+- Passed: `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/amr-acp-integration.test.ts`.
+- Passed: `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/chat-route.test.ts -t "retries transient AMR Link catalog failures"`.
+- Passed: `pnpm --filter @open-design/web exec vitest run -c vitest.config.ts tests/providers/daemon-amr-models.test.ts`.
+- Passed: `pnpm --filter @open-design/daemon typecheck && pnpm --filter @open-design/web typecheck && pnpm --filter @open-design/contracts typecheck`.
+- Passed: `pnpm typecheck`.
+- Failed: `pnpm guard` due an existing tools layout violation:
+  `tools/pr/ -> tools/ top-level entries are allowlisted; expected only
+  AGENTS.md, dev/, pack/, and serve/`.

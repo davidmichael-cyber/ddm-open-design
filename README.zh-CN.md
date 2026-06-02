@@ -120,6 +120,10 @@ Open Design 是这样一种产物：Anthropic 随 Claude Design 推出的 **Agen
 
 > Open Design 以 **技能、CLI 和 MCP 服务器**的形式交付，主流编码 Agent 可原生消费。装好 OD 后，一行 `od mcp install <agent>` 把 MCP 服务器 wire 进对应 Agent 的配置，任何 Agent 内调用相同工具。
 
+<p align="center">
+  <img src="docs/assets/coding-agents.png" alt="Open Design 支持的 19 个编码 Agent CLI — Claude Code · Codex · Gemini · GitHub Copilot · Cursor · OpenCode · Devin · Hermes · Trae · Grok · Kimi · Qwen · Qoder · Kiro · Kilo · Mistral Vibe · DeepSeek · Pi · Aider" width="100%" />
+</p>
+
 | 平台 | 状态 | 安装方式 |
 |---|---|---|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | ✅ 支持 | `od mcp install claude` |

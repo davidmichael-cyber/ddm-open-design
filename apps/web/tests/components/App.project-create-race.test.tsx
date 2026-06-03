@@ -638,13 +638,15 @@ describe('App project creation routing', () => {
     expect(replaceOrder).toBeLessThan(uploadOrder);
   });
 
-  it('surfaces an error instead of silently diverging when the working-dir token is expired/invalid', async () => {
+  it('short-circuits the upload + auto-send when the working-dir handoff fails', async () => {
     // Regression for the swallowed-failure case: the desktop working-dir token
     // has a ~60s TTL, so a slow user (or any rejected POST) makes
     // replaceProjectWorkingDir throw AFTER the project already exists. The old
-    // code only logged a warning, so the staged upload landed in the managed
-    // root while the user believed their chosen folder was applied. The fix
-    // surfaces a create-time error toast.
+    // code only logged a warning and then uploaded the staged attachments into
+    // the managed root while the user believed their chosen folder was applied.
+    // The fix surfaces a create-time error toast AND aborts the rest of the
+    // submit path so the first run cannot proceed on a tree the user did not
+    // choose.
     mockedListProjects.mockResolvedValue([]);
     mockedReplaceProjectWorkingDir.mockRejectedValue(
       new Error('working-dir token expired'),
@@ -659,9 +661,9 @@ describe('App project creation routing', () => {
     await waitFor(() => {
       expect(screen.getByText(/Couldn't apply the chosen folder/i)).toBeTruthy();
     });
-    // The handoff failed, but the project was still created — the upload still
-    // runs (the user keeps their project); the toast is what tells them the
-    // folder did not take effect.
     expect(mockedReplaceProjectWorkingDir).toHaveBeenCalledTimes(1);
+    // The handoff failed, so the staged attachments must NOT be uploaded into
+    // the managed `.od/projects/<id>` root the user did not pick.
+    expect(mockedUploadProjectFiles).not.toHaveBeenCalled();
   });
 });

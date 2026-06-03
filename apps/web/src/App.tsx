@@ -1004,6 +1004,7 @@ function AppInner() {
       // dir flips. Doing the handoff first means the initial upload lands in
       // the final tree.
       const userWorkingDir = input.metadata?.userWorkingDir;
+      let workingDirHandoffFailed = false;
       if (userWorkingDir) {
         try {
           await replaceProjectWorkingDir(
@@ -1015,18 +1016,21 @@ function AppInner() {
           // The desktop working-dir token is short-lived (~60s TTL); if the
           // user lingered on Home or the POST was otherwise rejected, the
           // handoff fails AFTER the project already exists. Do NOT swallow
-          // this: the staged upload below would then land in the managed
-          // `.od/projects/<id>` root while the user believes their chosen
-          // folder is in effect. Surface it so they can re-pick the folder
-          // from inside the project instead of silently diverging.
+          // this and do NOT proceed: uploading staged attachments or
+          // auto-sending the first message would target the managed
+          // `.od/projects/<id>` root the user did not choose. Mark the
+          // handoff as failed so the upload + auto-send branches below are
+          // skipped, then surface a create-time error so the user can
+          // re-pick the working directory from inside the project.
           console.warn('Failed to set working directory for new project', userWorkingDir, err);
+          workingDirHandoffFailed = true;
           setWorkingDirError(
-            `Couldn't apply the chosen folder "${userWorkingDir}". The project was created in the default location — re-pick the working directory from the project to use your folder.`,
+            `Couldn't apply the chosen folder "${userWorkingDir}". The project was created in the default location — re-pick the working directory from the project before uploading files or sending a message.`,
           );
         }
       }
       let firstMessageAttachments: ChatAttachment[] = [];
-      if (pendingFiles.length > 0) {
+      if (!workingDirHandoffFailed && pendingFiles.length > 0) {
         // Home composer attaches stay client-side until submit lands a
         // project; the actual upload happens here. v2 doc wants one
         // file_upload_result per surface — `page_name='home'` /
@@ -1069,6 +1073,7 @@ function AppInner() {
       // pre-filling the composer. Scoped to sessionStorage so a page
       // reload after the run has started does not refire.
       if (
+        !workingDirHandoffFailed &&
         input.autoSendFirstMessage &&
         (derivedPendingPrompt !== undefined || firstMessageAttachments.length > 0)
       ) {

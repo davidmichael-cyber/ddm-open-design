@@ -326,6 +326,26 @@ describe('DesignFilesPanel directory navigation', () => {
     expect(dirRows[0]!.textContent).toContain('icons');
   });
 
+  it('always renders the root breadcrumb on the default-root view', () => {
+    // Regression: managed-storage projects have currentDir==='' and no
+    // rootDirName, which previously collapsed the whole breadcrumb nav to null
+    // and left the toolbar blank on the left for the most common path. The root
+    // crumb must always render, falling back to the t('designFiles.crumbs')
+    // label when no rootDirName exists.
+    renderPanel([file({ name: 'top.html', kind: 'html' })]);
+
+    expect(document.querySelector('.df-breadcrumbs')).toBeTruthy();
+    expect(document.querySelector('.df-breadcrumb-current')?.textContent).toBe('project');
+  });
+
+  it('shows rootDirName as the root breadcrumb when one is provided', () => {
+    renderPanel([file({ name: 'top.html', kind: 'html' })], {
+      rootDirName: 'my-folder',
+    });
+
+    expect(document.querySelector('.df-breadcrumb-current')?.textContent).toBe('my-folder');
+  });
+
   it('clicking the root breadcrumb navigates back to root', () => {
     renderPanel([
       file({ name: 'assets/logo.png', kind: 'image' }),

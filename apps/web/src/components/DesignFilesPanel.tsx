@@ -637,7 +637,7 @@ export function DesignFilesPanel({
     </div>
   );
 
-  const breadcrumbs = currentDir !== '' || rootDirName ? (
+  const breadcrumbs = (
     <nav className="df-breadcrumbs" aria-label={t('designFiles.crumbs')}>
       {currentDir === '' ? (
         <span className="df-breadcrumb-current">
@@ -673,7 +673,7 @@ export function DesignFilesPanel({
         );
       })}
     </nav>
-  ) : null;
+  );
 
   const visibleUploadError = uploadError ?? dropReadError;
   const hasSelection = selected.size > 0;

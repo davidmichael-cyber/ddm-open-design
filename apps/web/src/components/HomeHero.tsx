@@ -1094,7 +1094,7 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
                 >
                   <Icon name="folder" size={13} />
                   <span>
-                    {workingDir ? workingDir.split('/').filter(Boolean).pop() : t('workingDirPicker.select')}
+                    {workingDir ? workingDir.split(/[/\\]/).filter(Boolean).pop() : t('workingDirPicker.select')}
                   </span>
                 </button>
                 {workingDir ? (

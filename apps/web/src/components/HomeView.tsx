@@ -945,13 +945,20 @@ export function HomeView({
       // The user explicitly cancelled the host picker — respect that and do
       // not pop a second dialog.
       if ('canceled' in result && result.canceled) return;
-      // Otherwise the host could not service the pick: either this is a
-      // mixed-version desktop upgrade where the web bundle has the new
-      // `project.pickWorkingDir` method but the shipped preload does not, or
-      // the host call errored. Fall through to the browser folder dialog so
-      // the pre-create picker keeps working instead of becoming a silent
-      // no-op.
+      // The host is present but could not service the pick (mixed-version
+      // upgrade where the preload lacks `project.pickWorkingDir`, or a host
+      // error). We must NOT fall back to openFolderDialog() here: the browser
+      // dialog yields a raw path with no host-minted token, so the later
+      // POST /api/projects/:id/working-dir would be rejected by the desktop
+      // auth gate and surface as a confusing late create-time failure.
+      // Surface the host error instead and keep the existing working dir.
+      setError(
+        `Couldn't open the folder picker (${'reason' in result ? result.reason : 'host unavailable'}). Please update Open Design and try again.`,
+      );
+      return;
     }
+    // Pure web path: no desktop host, so there is no token gate — the raw
+    // browser folder path is the expected, working input.
     const picked = await openFolderDialog();
     if (picked) {
       setWorkingDir(picked);

@@ -1923,6 +1923,10 @@ export interface Dict {
   "chat.designToolbox.resourcesSection": string;
   "chat.designToolbox.selected": string;
   "chat.designToolbox.noResources": string;
+  "chat.designToolbox.badge.video": string;
+  "chat.designToolbox.badge.image": string;
+  "chat.designToolbox.badge.motion": string;
+  "chat.designToolbox.badge.polish": string;
   "chat.designToolbox.action.auto-match.title": string;
   "chat.designToolbox.action.auto-match.badge": string;
   "chat.designToolbox.action.auto-match.description": string;

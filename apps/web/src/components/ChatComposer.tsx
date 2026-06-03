@@ -3200,8 +3200,9 @@ function DesignToolboxPanel({
         connectors,
         projectFiles,
         locale,
+        t,
       }),
-    [connectors, locale, mcpServers, mcpTemplates, plugins, projectFiles, skills],
+    [connectors, locale, mcpServers, mcpTemplates, plugins, projectFiles, skills, t],
   );
   const visibleActions = useMemo(
     () =>
@@ -3472,7 +3473,8 @@ function buildDesignToolboxResources({
   connectors,
   projectFiles,
   locale,
-}: DesignToolboxResourceIndex & { locale: Locale }): DesignToolboxResource[] {
+  t,
+}: DesignToolboxResourceIndex & { locale: Locale; t: TranslateFn }): DesignToolboxResource[] {
   const resources: DesignToolboxResource[] = [];
 
   for (const skill of skills) {
@@ -3484,7 +3486,7 @@ function buildDesignToolboxResources({
       id: skill.id,
       title,
       subtitle,
-      badge: designToolboxSkillBadge(skill),
+      badge: designToolboxSkillBadge(skill, t),
       icon: designToolboxSkillIcon(skill),
       searchText: [
         'skill',
@@ -3816,11 +3818,11 @@ function designToolboxDefaultSkills(
   return out;
 }
 
-function designToolboxSkillBadge(skill: SkillSummary): string {
-  if (skill.mode === 'video' || skill.category === 'video-generation') return '视频';
-  if (skill.mode === 'image' || skill.category === 'image-generation') return '生图';
-  if (skill.category === 'animation-motion') return '动画';
-  if (skill.category === 'creative-direction') return '润色';
+function designToolboxSkillBadge(skill: SkillSummary, t: TranslateFn): string {
+  if (skill.mode === 'video' || skill.category === 'video-generation') return t('chat.designToolbox.badge.video');
+  if (skill.mode === 'image' || skill.category === 'image-generation') return t('chat.designToolbox.badge.image');
+  if (skill.category === 'animation-motion') return t('chat.designToolbox.badge.motion');
+  if (skill.category === 'creative-direction') return t('chat.designToolbox.badge.polish');
   return skill.mode;
 }
 

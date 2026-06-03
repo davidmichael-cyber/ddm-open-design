@@ -6,6 +6,7 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
 } from 'react';
+import { Button } from '@open-design/components';
 import type { TrackingProjectKind } from '@open-design/contracts/analytics';
 import { useAnalytics } from '../analytics/provider';
 import {
@@ -2415,14 +2416,14 @@ function DesignSystemProjectPanel({
           {published ? (
             <div className="ds-project-use-row">
               <span>Use this system</span>
-              <button
-                type="button"
-                className="ghost compact"
+              <Button
+                variant="ghost"
+                className="compact"
                 onClick={() => onUseDesignSystem?.(system.id, system.title)}
               >
                 <Icon name="external-link" size={13} />
                 New design
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>
@@ -2435,20 +2436,20 @@ function DesignSystemProjectPanel({
               <small>{repoConnectCopy(githubConnected).bannerBody}</small>
             </span>
             {onConnectRepo ? (
-              <button
-                type="button"
-                className="ghost compact"
+              <Button
+                variant="ghost"
+                className="compact"
                 disabled={githubConnected === undefined}
                 onClick={onConnectRepo}
               >
                 <Icon name="github" size={13} />
                 {repoConnectCopy(githubConnected).buttonLabel}
-              </button>
+              </Button>
             ) : githubEvidence.hasSourceManifest ? (
-              <button type="button" className="ghost compact" onClick={() => onOpenFile('context/source-context.md')}>
+              <Button variant="ghost" className="compact" onClick={() => onOpenFile('context/source-context.md')}>
                 <Icon name="file" size={13} />
                 Open source context
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : null}

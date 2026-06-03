@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from 'react-dom';
+import { Button } from '@open-design/components';
 import { useI18n, useT } from '../i18n';
 import type { Dict, Locale } from '../i18n/types';
 import {
@@ -474,6 +475,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     const designToolboxMenuRef = useRef<HTMLDivElement | null>(null);
     const designToolboxTriggerRef = useRef<HTMLButtonElement | null>(null);
     const petEnabled = Boolean(onAdoptPet && onTogglePet);
+    const [petMenuOpen, setPetMenuOpen] = useState(false);
+    const petWrapRef = useRef<HTMLDivElement | null>(null);
+    const [petMenuStyle, setPetMenuStyle] = useState<React.CSSProperties>({});
     const linkedDirs = projectMetadata?.linkedDirs ?? [];
     const visibleWorkspaceContext =
       activeWorkspaceContext && activeWorkspaceContext.id !== dismissedWorkspaceContextId
@@ -540,6 +544,59 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
         document.removeEventListener('keydown', onKey);
       };
     }, [toolsOpen]);
+
+    useEffect(() => {
+      if (!petMenuOpen) return;
+      function onPointer(e: MouseEvent) {
+        const target = e.target as Node;
+        if (petWrapRef.current?.contains(target)) return;
+        setPetMenuOpen(false);
+      }
+      function onKey(e: KeyboardEvent) {
+        if (e.key === 'Escape') setPetMenuOpen(false);
+      }
+      document.addEventListener('mousedown', onPointer);
+      document.addEventListener('keydown', onKey);
+      return () => {
+        document.removeEventListener('mousedown', onPointer);
+        document.removeEventListener('keydown', onKey);
+      };
+    }, [petMenuOpen]);
+
+    // Viewport-aware pet menu positioning — flips the popover to stay
+    // within screen bounds instead of clipping at the edge.
+    useEffect(() => {
+      if (!petMenuOpen) return;
+      const wrap = petWrapRef.current;
+      if (!wrap) return;
+      const rect = wrap.getBoundingClientRect();
+      const menuW = 260;
+      const menuH = 200;
+      const gap = 6;
+      const viewW = window.innerWidth;
+      const viewH = window.innerHeight;
+      // Prefer opening upward (bottom of menu above the button).
+      // Flip downward when there isn't enough room above.
+      // When neither direction fits, clamp to viewport bounds.
+      let top: number;
+      if (rect.top >= menuH + gap) {
+        top = rect.top - menuH - gap;
+      } else if (rect.bottom + menuH + gap <= viewH) {
+        top = rect.bottom + gap;
+      } else {
+        top = Math.max(gap, viewH - menuH - gap);
+      }
+      // Right-align by default (menu right edge ≈ button right edge).
+      // Shift left when the menu would spill past the viewport left edge.
+      const left = Math.max(8, Math.min(viewW - menuW - 8, rect.right - menuW));
+      setPetMenuStyle({
+        position: 'fixed',
+        top,
+        left,
+        bottom: 'auto',
+        right: 'auto',
+      });
+    }, [petMenuOpen]);
 
     useEffect(() => {
       if (!designToolboxOpen) return;
@@ -2337,9 +2394,72 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
                 </div>
               ) : null}
             </div>
-            <button
-              type="button"
-              className="icon-btn od-tooltip"
+            {petEnabled ? (
+              <div className="composer-pet-wrap" ref={petWrapRef}>
+                <button
+                  type="button"
+                  className={`composer-pet${petConfig?.adopted ? ' adopted' : ''}`}
+                  onClick={() => {
+                    if (petConfig?.adopted) {
+                      if (!petConfig.enabled) setPetMenuOpen(true);
+                      else setPetMenuOpen((v) => !v);
+                    } else {
+                      setPetMenuOpen((v) => !v);
+                    }
+                  }}
+                  title={t('pet.composerTitle')}
+                  aria-haspopup="menu"
+                  aria-expanded={petMenuOpen}
+                  aria-label={t('pet.composerTitle')}
+                >
+                  <span className="composer-pet-glyph">
+                    {petConfig?.adopted ? (petConfig?.custom?.glyph || '🐾') : '🐾'}
+                  </span>
+                  <span className="composer-pet-label">
+                    {petConfig?.adopted ? (petConfig?.custom?.name || 'Buddy') : t('pet.composerMenuTitle')}
+                  </span>
+                </button>
+                {petMenuOpen ? (
+                  <div
+                    className="composer-pet-menu"
+                    style={petMenuStyle}
+                  >
+                    <div className="composer-pet-menu-head">
+                      <strong>{t('pet.composerMenuTitle')}</strong>
+                      <span>{t('pet.composerMenuHint')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="composer-pet-menu-row toggle"
+                      onClick={() => {
+                        if (petConfig?.adopted) {
+                          onTogglePet?.();
+                        } else {
+                          onOpenPetSettings?.();
+                        }
+                        setPetMenuOpen(false);
+                      }}
+                    >
+                      <Icon name={petConfig?.enabled ? 'eye-off' : 'eye'} size={12} />
+                      <span>{petConfig?.enabled ? t('pet.tuck') : t('pet.wake')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-pet-menu-row settings"
+                      onClick={() => {
+                        onOpenPetSettings?.();
+                        setPetMenuOpen(false);
+                      }}
+                    >
+                      <Icon name="settings" size={12} />
+                      <span>{t('pet.composerOpenSettings')}</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <Button
+              size="icon"
               data-testid="chat-attach"
               onClick={() => {
                 trackChatPanelClick(analytics.track, {
@@ -2359,7 +2479,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
               ) : (
                 <Icon name="attach" size={15} />
               )}
-            </button>
+            </Button>
             <SessionModeToggle
               mode={sessionMode}
               onChange={onSessionModeChange}

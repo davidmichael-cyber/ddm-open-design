@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '@open-design/components';
 import { useAnalytics } from '../analytics/provider';
 import { trackFileManagerClick } from '../analytics/events';
 import { useT } from '../i18n';
@@ -2303,10 +2304,10 @@ function DfPreview({
       </div>
       <div className="df-preview-meta" data-testid="design-file-preview">
         <div className="df-preview-actions">
-          <button type="button" className="ghost" onClick={onOpen}>
+          <Button variant="ghost" onClick={onOpen}>
             <Icon name="eye" size={13} />
             <span>{t('designFiles.previewOpen')}</span>
-          </button>
+          </Button>
           <a
             className="ghost-link"
             href={url}

@@ -1,4 +1,5 @@
 import type { ChangeEvent, ClipboardEvent, CSSProperties } from 'react';
+import { Button, Textarea } from '@open-design/components';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 import type { PreviewCommentSnapshot } from '../comments';
@@ -411,9 +412,9 @@ export function BoardComposerPopover({
               {notes.map((note, index) => (
                 <div key={`${target.elementId}-${index}`} className="board-note-item">
                   <span>{note}</span>
-                  <button type="button" className="ghost" onClick={() => onRemoveQueuedNote(index)}>
+                  <Button variant="ghost" onClick={() => onRemoveQueuedNote(index)}>
                     {t('chat.comments.remove')}
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
@@ -458,7 +459,7 @@ export function BoardComposerPopover({
               ))}
             </div>
           ) : null}
-          <textarea
+          <Textarea
             data-testid="comment-popover-input"
             value={draft}
             autoFocus
@@ -539,47 +540,43 @@ export function BoardComposerPopover({
               {isPodSelection ? (
                 <>
                   {/* Pod: add-note is secondary, send-to-chat is the primary CTA. */}
-                  <button
-                    type="button"
-                    className="ghost"
+                  <Button
+                    variant="ghost"
                     data-testid="comment-popover-add-note"
                     disabled={!draft.trim()}
                     onClick={onAddDraft}
                   >
                     {t('chat.comments.addNote')}
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
+                  </Button>
+                  <Button
+                    variant="primary"
                     data-testid="comment-add-send"
                     disabled={sendBlocked}
                     onClick={() => void onSendBatch()}
                   >
                     {primaryLabel}
-                  </button>
+                  </Button>
                 </>
               ) : (
                 <>
                   {/* Element: comment (save) is the primary CTA (also Enter);
                       send-to-chat is secondary. */}
-                  <button
-                    type="button"
-                    className="ghost"
+                  <Button
+                    variant="ghost"
                     data-testid="comment-add-send"
                     disabled={sendBlocked}
                     onClick={() => void onSendBatch()}
                   >
                     {primaryLabel}
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
+                  </Button>
+                  <Button
+                    variant="primary"
                     data-testid="comment-popover-save"
                     disabled={saveDisabled}
                     onClick={() => void onSaveComment()}
                   >
                     {t('chat.comments.comment')}
-                  </button>
+                  </Button>
                 </>
               )}
             </div>

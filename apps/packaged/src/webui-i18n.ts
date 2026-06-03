@@ -25,6 +25,7 @@ export type WebuiMessages = {
   stopped: string;
   notRunning: (namespace: string) => string;
   startFailedLog: (logPath: string) => string;
+  alreadyRunning: (url: string) => string;
 };
 
 const EN: WebuiMessages = {
@@ -49,6 +50,7 @@ const EN: WebuiMessages = {
   stopped: "Open Design stopped",
   notRunning: (namespace) => `No running Open Design found (namespace=${namespace})`,
   startFailedLog: (logPath) => `Open Design failed to start; see ${logPath} for details`,
+  alreadyRunning: (url) => `Open Design is already running at ${url}`,
 };
 
 const ZH_CN: WebuiMessages = {
@@ -70,6 +72,7 @@ const ZH_CN: WebuiMessages = {
   stopped: "Open Design 已停止",
   notRunning: (namespace) => `未发现运行中的 Open Design（namespace=${namespace}）`,
   startFailedLog: (logPath) => `Open Design 启动失败，详情见 ${logPath}`,
+  alreadyRunning: (url) => `Open Design 已在运行：${url}`,
 };
 
 const MESSAGES: Record<WebuiLocale, WebuiMessages> = { en: EN, "zh-CN": ZH_CN };

@@ -302,6 +302,26 @@ function printStartBanner(opts: {
   }
 }
 
+// One desktop IPC STATUS probe. Returns the live instance's URLs, or null when
+// nothing is listening on this namespace (a dead/stale/absent socket all throw
+// and resolve to null — so this never false-positives on a crashed worker).
+async function probeWebuiStatus(
+  ipcPath: string,
+): Promise<{ url: string; daemonUrl: string | null } | null> {
+  try {
+    const reply = (await requestJsonIpc(ipcPath, { type: SIDECAR_MESSAGES.STATUS }, { timeoutMs: 800 })) as {
+      url?: string;
+      daemonUrl?: string | null;
+    };
+    if (reply?.url != null && reply.url.length > 0) {
+      return { url: reply.url, daemonUrl: reply.daemonUrl ?? null };
+    }
+  } catch {
+    // nothing listening on this namespace
+  }
+  return null;
+}
+
 // Polls the worker's desktop IPC STATUS until it reports a URL, fast-failing if
 // the detached worker dies (reads its log tail into the error so the real
 // failure surfaces in the foreground terminal).
@@ -318,17 +338,8 @@ async function waitForWebuiReady(
       const tail = await readSidecarLogTail(logPath);
       throw new Error(`${t.startFailedLog(logPath)}${tail.length > 0 ? `:\n${tail}` : ""}`);
     }
-    try {
-      const reply = (await requestJsonIpc(ipcPath, { type: SIDECAR_MESSAGES.STATUS }, { timeoutMs: 800 })) as {
-        url?: string;
-        daemonUrl?: string | null;
-      };
-      if (reply?.url != null && reply.url.length > 0) {
-        return { webUrl: reply.url, daemonUrl: reply.daemonUrl ?? null };
-      }
-    } catch {
-      // not listening yet
-    }
+    const status = await probeWebuiStatus(ipcPath);
+    if (status != null) return { webUrl: status.url, daemonUrl: status.daemonUrl };
     await sleep(200);
   }
   const tail = await readSidecarLogTail(logPath);
@@ -359,6 +370,24 @@ async function commandStart(
   // and the detached worker (which inherits this env) agree on the data root.
   if (config.dataDir != null) process.env.OD_DATA_DIR = config.dataDir;
 
+  // Pre-flight: if an instance is already serving this namespace, do NOT start a
+  // second one — it would collide on the IPC socket and the web/daemon ports and
+  // fail obscurely. Report the existing address and exit cleanly so a repeated
+  // `start` is idempotent. (Probing here also avoids minting a throwaway token.)
+  const namespace = resolveRuntimeNamespace(config, process.env);
+  const ipcPath = resolveAppIpcPath({ app: APP_KEYS.DESKTOP, contract: OPEN_DESIGN_SIDECAR_CONTRACT, namespace });
+  const running = await probeWebuiStatus(ipcPath);
+  if (running != null) {
+    if (json) {
+      process.stdout.write(
+        `${JSON.stringify({ alreadyRunning: true, url: running.url, daemonUrl: running.daemonUrl })}\n`,
+      );
+    } else {
+      process.stdout.write(`\n ${t.alreadyRunning(running.url)}\n ${t.hintStop(cmdBase())}\n\n`);
+    }
+    return;
+  }
+
   let token = config.token;
   let tokenNotice: string | null = null;
   let tokenPersisted: boolean | null = null;
@@ -383,13 +412,12 @@ async function commandStart(
 
   // Default: detach into the background. Spawn this module again as `__serve`,
   // unref it, wait for readiness over IPC, print, then exit so the terminal is
-  // free. `stop` talks to the detached worker over the same IPC path.
-  const namespace = resolveRuntimeNamespace(resolved, process.env);
+  // free. `stop` talks to the detached worker over the same IPC path. `namespace`
+  // and `ipcPath` were resolved during the pre-flight probe above.
   const paths = resolvePackagedNamespacePaths(resolveLauncherConfig(namespace));
   await mkdir(paths.logsRoot, { recursive: true });
   const logPath = join(paths.logsRoot, "webui.log");
   const logHandle = await open(logPath, "a");
-  const ipcPath = resolveAppIpcPath({ app: APP_KEYS.DESKTOP, contract: OPEN_DESIGN_SIDECAR_CONTRACT, namespace });
 
   let pid: number;
   try {

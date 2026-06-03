@@ -39,6 +39,7 @@ describe("webuiMessages", () => {
       expect(m.runningInBackground.length).toBeGreaterThan(0);
       expect(m.hintStop("./open-design.sh")).toContain("./open-design.sh stop");
       expect(m.hintForeground("./open-design.sh")).toContain("--foreground");
+      expect(m.alreadyRunning("http://localhost:7456")).toContain("http://localhost:7456");
     }
   });
 

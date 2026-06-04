@@ -161,6 +161,7 @@ import { ProjectDesignSystemPicker } from './ProjectDesignSystemPicker';
 import { PluginDetailsModal } from './PluginDetailsModal';
 import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
 import { ChatPane } from './ChatPane';
+import { WorkingDirPill } from './WorkingDirPill';
 import type { ChatSendMeta } from './ChatComposer';
 import {
   CritiqueTheaterMount,
@@ -768,6 +769,10 @@ export function ProjectView({
   const [audioVoiceOptionsError, setAudioVoiceOptionsError] = useState<string | null>(null);
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [filesRefresh, setFilesRefresh] = useState(0);
+  // True while a working-dir replace is reindexing the new folder. Surfaced
+  // to the Design Files panel so the file list shows a loading state instead
+  // of silently sitting on the old tree for the few seconds the scan takes.
+  const [workingDirReplacing, setWorkingDirReplacing] = useState(false);
   const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
   const projectFilesRef = useRef<ProjectFile[]>([]);
   const [liveArtifacts, setLiveArtifacts] = useState<LiveArtifactSummary[]>([]);
@@ -5157,6 +5162,14 @@ export function ProjectView({
         <FileWorkspace
           projectId={project.id}
           projectKind={projectKindToTracking(project.metadata?.kind) ?? 'prototype'}
+          rootDirName={(() => {
+            const baseDir =
+              projectDetail.project?.metadata?.baseDir ?? project.metadata?.baseDir;
+            return typeof baseDir === 'string'
+              ? baseDir.split(/[/\\]/).filter(Boolean).pop()
+              : undefined;
+          })()}
+          reloading={workingDirReplacing}
           resolvedDir={projectDetail.resolvedDir}
           files={projectFiles}
           liveArtifacts={liveArtifacts}
@@ -5217,6 +5230,26 @@ export function ProjectView({
           conversationId={activeConversationId}
           headerActions={(
             <>
+              <WorkingDirPill
+                projectId={project.id}
+                resolvedDir={projectDetail.resolvedDir}
+                onReplaced={({ project: updated }) => {
+                  if (updated) onProjectChange(updated);
+                  // The new working dir has a different file tree, so the
+                  // current listing, breadcrumb nav, and open tabs are all
+                  // stale. Refetch files; DesignFilesPanel's self-heal then
+                  // drops the now-unmatched currentDir back to root.
+                  // projectDetail.refresh() repulls resolvedDir so the
+                  // breadcrumb root + pill show the new folder name even on
+                  // the Electron path, which reports no updated project.
+                  setWorkingDirReplacing(true);
+                  refreshFilesAndDesignMd();
+                  void Promise.all([
+                    refreshWorkspaceItems(),
+                    projectDetail.refresh(),
+                  ]).finally(() => setWorkingDirReplacing(false));
+                }}
+              />
               <EntrySettingsMenu
                 config={config}
                 onThemeChange={handleThemeChange}

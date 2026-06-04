@@ -3615,6 +3615,12 @@ function openNativeFolderDialog() {
   return new Promise((resolve) => {
     const platform = process.platform;
     if (platform === 'darwin') {
+      // `choose folder` is handled specially by the system: it presents a fully
+      // interactive standard navigation panel that reliably takes key focus
+      // (unlike a JXA-driven NSOpenPanel from background-only osascript, which
+      // renders but can't be clicked). That standard panel already includes a
+      // "New Folder" button in the bottom-left, so users can create a folder
+      // inline without any extra wiring.
       execFile(
         'osascript',
         ['-e', 'POSIX path of (choose folder with prompt "Select a code folder to link")'],

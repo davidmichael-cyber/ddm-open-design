@@ -2243,6 +2243,13 @@ export interface Dict {
   'designFiles.next': string;
   'designFiles.jumpToPage': string;
   'designFiles.pageInfo': string;
+  'designFiles.sectionFolders': string;
+  'designFiles.sectionStylesheets': string;
+  'designFiles.sectionDocuments': string;
+  'designFiles.kindStylesheet': string;
+  'designFiles.modifiedExt': string;
+  'designFiles.usefulInfoLabel': string;
+  'designFiles.usefulInfoTip': string;
   'quickSwitcher.placeholder': string;
   'quickSwitcher.empty': string;
   'quickSwitcher.noMatches': string;

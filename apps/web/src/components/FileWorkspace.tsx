@@ -93,6 +93,12 @@ import type { ChatMessage } from '../types';
 interface Props {
   projectId: string;
   projectKind: TrackingProjectKind;
+  // Basename of the project's chosen working directory (e.g. "openclaw").
+  // Threaded to DesignFilesPanel as the breadcrumb root label. Undefined for
+  // default-storage projects.
+  rootDirName?: string;
+  // True while a working-dir replace is reindexing; shows a loading state.
+  reloading?: boolean;
   /** Absolute on-disk project directory (from GET /api/projects/:id). Used by
    * the Design Files panel's "copy absolute path" action. */
   resolvedDir?: string | null;
@@ -323,6 +329,8 @@ const DESIGN_SYSTEM_IMAGE_OR_FONT_EXTENSIONS = /\.(svg|png|jpe?g|gif|webp|avif|i
 export function FileWorkspace({
   projectId,
   projectKind,
+  rootDirName,
+  reloading,
   resolvedDir,
   files,
   liveArtifacts,
@@ -2023,12 +2031,11 @@ export function FileWorkspace({
           <DesignFilesPanel
             key={projectId}
             projectId={projectId}
-            resolvedDir={resolvedDir ?? undefined}
+            rootDirName={rootDirName}
+            reloading={reloading}
             files={visibleFiles}
-            folders={projectFolders}
             liveArtifacts={liveArtifactEntries}
             onRefreshFiles={onRefreshFiles}
-            onCurrentDirChange={setUploadDir}
             onOpenFile={openFile}
             onOpenLiveArtifact={(tabId) => openFile(tabId)}
             onRenameFile={handleRename}
@@ -2057,21 +2064,6 @@ export function FileWorkspace({
               fileInputRef.current?.click();
             }}
             onUploadFiles={(picked) => void uploadFiles(picked)}
-            onCreateFolder={async (name) => {
-              const folder = await createProjectFolder(projectId, name);
-              if (folder) {
-                await refreshProjectFolders();
-              }
-              return folder;
-            }}
-            onDeleteFolder={async (folderPath) => {
-              const ok = await deleteProjectFolder(projectId, folderPath);
-              if (ok) {
-                await onRefreshFiles();
-                await refreshProjectFolders();
-              }
-              return ok;
-            }}
             onPaste={() => {
               trackFileManagerClick(analytics.track, {
                 page_name: 'file_manager',

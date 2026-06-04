@@ -243,7 +243,7 @@ describe("packaged smoke workflow", () => {
     expect(publishBetaMetadataScript).toContain("validatePlatformManifest");
     expect(publishBetaMetadataScript).toContain("manifest.releaseVersion !== releaseVersion");
     expect(publishBetaMetadataScript).toContain("manifest.github?.runId !== currentRunId");
-    expect(publishBetaMetadataScript).toContain("manifest.github?.runAttempt !== currentRunAttempt");
+    expect(publishBetaMetadataScript).not.toContain("manifest.github?.runAttempt !== currentRunAttempt");
     expect(publishBetaMetadataScript).toContain("manifest.github?.commit !== currentCommit");
     expect(publishBetaMetadataScript).toContain("manifest.platformKey !== key");
     expect(publishBetaMetadataScript).toContain("manifest.r2.versionPrefix.includes(`/versions/${releaseVersion}`)");
@@ -398,6 +398,73 @@ describe("packaged smoke workflow", () => {
         "refusing stale mac platform manifest for 1.2.3-beta.4: github.runId=111111111",
       );
       expect(fixture.uploadedObjectKeys()).toEqual([]);
+    } finally {
+      await fixture.close();
+      await rm(runnerTemp, { force: true, recursive: true });
+    }
+  });
+
+  it("accepts same-run latest platform manifests from an older workflow attempt", async () => {
+    const fixture = await startReleaseMetadataObjectStore({
+      "beta/latest/platforms/mac.json": {
+        artifacts: {
+          dmg: {
+            url: "https://releases.open-design.ai/beta/versions/1.2.3-beta.4.unsigned/Open Design Beta.dmg",
+          },
+        },
+        channel: "beta",
+        github: {
+          commit: "current-sha",
+          runAttempt: 1,
+          runId: 222222222,
+        },
+        platformKey: "mac",
+        r2: {
+          versionPrefix: "beta/versions/1.2.3-beta.4.unsigned",
+        },
+        releaseVersion: "1.2.3-beta.4",
+        signed: false,
+        status: "published",
+      },
+    });
+    const runnerTemp = await mkdtemp(join(tmpdir(), "od-release-beta-metadata-"));
+
+    try {
+      await execFileAsync(process.execPath, ["--experimental-strip-types", releasePublishBetaMetadataScriptPath], {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          AWS_ACCESS_KEY_ID: "test-access-key",
+          AWS_DEFAULT_REGION: "auto",
+          AWS_SECRET_ACCESS_KEY: "test-secret-key",
+          BASE_VERSION: "1.2.3",
+          BRANCH_NAME: "codex/release-beta-s-mac-arm64",
+          CLOUDFLARE_R2_RELEASES_BUCKET: fixture.bucket,
+          CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN: "https://releases.open-design.ai",
+          CLOUDFLARE_R2_RELEASES_URL: fixture.endpointUrl,
+          ENABLE_LINUX: "false",
+          ENABLE_MAC: "true",
+          ENABLE_MAC_INTEL: "false",
+          ENABLE_WIN: "false",
+          GITHUB_RUN_ATTEMPT: "2",
+          GITHUB_RUN_ID: "222222222",
+          GITHUB_SHA: "current-sha",
+          MAC_RESULT: "success",
+          PLATFORM_MANIFEST_ROOT: join(runnerTemp, "release-platform-manifests"),
+          PLATFORM_MANIFEST_PREFIX: "beta/latest/platforms",
+          RELEASE_CHANNEL: "beta",
+          RELEASE_SIGNED: "false",
+          RELEASE_VERSION: "1.2.3-beta.4",
+          RUNNER_TEMP: runnerTemp,
+          STATE_SOURCE: "test",
+        },
+        maxBuffer: 1024 * 1024,
+      });
+
+      expect(fixture.uploadedObjectKeys()).toEqual([
+        "beta/versions/1.2.3-beta.4/metadata.json",
+        "beta/latest/metadata.json",
+      ]);
     } finally {
       await fixture.close();
       await rm(runnerTemp, { force: true, recursive: true });

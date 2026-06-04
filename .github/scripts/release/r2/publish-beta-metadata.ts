@@ -92,9 +92,6 @@ function validatePlatformManifest(key: string, manifest: PlatformManifest): stri
   if (currentRunId > 0 && manifest.github?.runId !== currentRunId) {
     return `github.runId=${String(manifest.github?.runId)}`;
   }
-  if (currentRunAttempt > 0 && manifest.github?.runAttempt !== currentRunAttempt) {
-    return `github.runAttempt=${String(manifest.github?.runAttempt)}`;
-  }
   if (currentCommit.length > 0 && manifest.github?.commit !== currentCommit) {
     return `github.commit=${String(manifest.github?.commit)}`;
   }
@@ -125,7 +122,6 @@ if (releaseChannel !== "beta") {
 
 const releaseVersion = required("RELEASE_VERSION");
 const currentCommit = optional("GITHUB_SHA");
-const currentRunAttempt = Number(process.env.GITHUB_RUN_ATTEMPT ?? "0");
 const currentRunId = Number(process.env.GITHUB_RUN_ID ?? "0");
 const latestPrefix = `${releaseChannel}/latest`;
 const manifestRoot = optional("PLATFORM_MANIFEST_ROOT", join(runnerTemp, "release-platform-manifests"));

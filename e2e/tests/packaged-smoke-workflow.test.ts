@@ -126,6 +126,7 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toMatch(/win_enable:[\s\S]*?default: true/);
     expect(workflow).toMatch(/mac_enable:[\s\S]*?default: true/);
     expect(workflow).toMatch(/publish:[\s\S]*?default: true/);
+    expect(workflow).toMatch(/s3_public_origin:[\s\S]*?default: "https:\/\/s3\.nexu\.space\/od-releases"/);
     expect(workflow).toContain("win_smoke_mode:");
     expect(workflow).toContain("win_target:");
     expect(workflow).toContain("win_update_metadata_url:");
@@ -145,11 +146,12 @@ describe("packaged smoke workflow", () => {
     expect(workflow).not.toMatch(/^      update_target_version:/m);
     expect(workflow).toContain("name: Prepare beta metadata");
     expect(workflow).toContain("OPEN_DESIGN_BETA_METADATA_URL: ${{ inputs.s3_public_origin }}/beta/latest/metadata.json");
+    expect(workflow).toContain("OPEN_DESIGN_STABLE_METADATA_URL: https://releases.open-design.ai/stable/latest/metadata.json");
     expect(workflow).toContain("path: _release-metadata");
     expect(workflow).toContain("working-directory: _release-metadata");
     expect(workflow).toContain("apps/packaged/package.json");
     expect(workflow).toContain("scripts/release-beta.ts");
-    expect(workflow).toContain('git fetch --force --depth=1 origin "+refs/tags/open-design-v*:refs/tags/open-design-v*"');
+    expect(workflow).not.toContain('git fetch --force --depth=1 origin "+refs/tags/open-design-v*:refs/tags/open-design-v*"');
     expect(workflow).toContain("release-beta-s requires at least one self-hosted platform");
     expect(workflow).toContain("name: Probe Windows signing capability");
     expect(workflow).toContain("probe-win-signing.ps1");
@@ -164,13 +166,13 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain(".github\\scripts\\release\\report\\win.ps1");
     expect(workflow).toContain("REPORT_ROOT: C:\\.tmp\\runner\\od-beta\\win\\release-report\\win");
     expect(workflow).toContain("REPORT_ZIP_PATH: C:\\.tmp\\runner\\od-beta\\win\\release-report\\win-report.zip");
-    expect(workflow).toContain("name: Upload windows e2e spec report");
-    expect(workflow).toContain("open-design-beta-win-e2e-report");
-    expect(workflow).toContain("Upload windows publish manifest");
-    expect(workflow).toContain("open-design-beta-win-publish-manifest");
+    expect(workflow).not.toContain("name: Upload windows e2e spec report");
+    expect(workflow).not.toContain("open-design-beta-win-e2e-report");
+    expect(workflow).not.toContain("Upload windows publish manifest");
+    expect(workflow).not.toContain("open-design-beta-win-publish-manifest");
     expect(workflow).toContain("if: ${{ inputs.mac_smoke_mode != 'skip' }}");
     expect(workflow).toContain("OD_PACKAGED_E2E_MAC_SMOKE_PROFILE: ${{ inputs.mac_smoke_mode }}");
-    expect(workflow).toContain("if: ${{ always() && inputs.mac_smoke_mode != 'skip' }}");
+    expect(workflow).not.toContain("name: Upload mac e2e spec report");
     expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64, nexu-mac, release-beta]");
     expect(workflow).toContain("path: _release-build");
     expect(workflow).toContain("working-directory: _release-build");
@@ -201,16 +203,18 @@ describe("packaged smoke workflow", () => {
     expect(
       workflow.match(/- name: Publish beta mac candidate platform to Nexu S3\n(?:.+\n)+?          node --experimental-strip-types \.github\/scripts\/release\/r2\/publish-platform\.ts/m)?.[0],
     ).toContain("OPEN_DESIGN_RELEASE_PROFILE: /Users/runner/.profile");
-    expect(workflow).toContain("Upload mac publish manifest");
-    expect(workflow).toContain("open-design-beta-mac-publish-manifest");
+    expect(workflow).not.toContain("Upload mac publish manifest");
+    expect(workflow).not.toContain("open-design-beta-mac-publish-manifest");
     expect(workflow).toContain("name: Publish beta metadata to Nexu S3");
-    expect(workflow).toContain("Download mac publish manifest");
+    expect(workflow).not.toContain("Download mac publish manifest");
     expect(workflow).toContain("path: _release-publish");
     expect(workflow).toContain(".github/scripts/release/r2/");
     expect(workflow).toContain("working-directory: _release-publish");
     expect(workflow).toContain("node --experimental-strip-types .github/scripts/release/r2/publish-beta-metadata.ts");
     expect(workflow).toContain("ASSET_VERSION_SUFFIX: auto");
-    expect(workflow).toContain("actions/download-artifact@v8");
+    expect(workflow).toContain("PLATFORM_MANIFEST_PREFIX: beta/latest/platforms");
+    expect(workflow).not.toContain("actions/upload-artifact@");
+    expect(workflow).not.toContain("actions/download-artifact@");
     expect(workflow).toContain('STATE_SOURCE: ${{ needs.metadata.outputs.state_source }}');
     expect(workflow).toContain("Verify beta metadata");
     expect(workflow).toContain("node --experimental-strip-types .github/scripts/release/r2/verify-beta-metadata.ts");

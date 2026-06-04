@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { uploadS3Object } from "./s3-upload.ts";
+import { getS3ObjectText, uploadS3Object } from "./s3-upload.ts";
 
 type PlatformManifest = {
   artifacts?: Record<string, { url?: string }>;
@@ -54,10 +54,22 @@ function setOutput(name, value) {
   appendFileSync(outputPath, `${name}=${value}\n`);
 }
 
-function readManifest(key): PlatformManifest | null {
+async function readManifest(key): Promise<PlatformManifest | null> {
   const path = join(manifestRoot, `${key}.json`);
-  if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, "utf8"));
+  if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8"));
+
+  const objectKey = `${platformManifestPrefix}/${key}.json`;
+  const text = await getS3ObjectText({
+    accessKeyId,
+    bucket,
+    endpointUrl,
+    objectKey,
+    region,
+    secretAccessKey,
+    sessionToken,
+  });
+  if (text == null) return null;
+  return JSON.parse(text);
 }
 
 const bucket = required("CLOUDFLARE_R2_RELEASES_BUCKET");
@@ -76,6 +88,7 @@ if (releaseChannel !== "beta") {
 const releaseVersion = required("RELEASE_VERSION");
 const latestPrefix = `${releaseChannel}/latest`;
 const manifestRoot = optional("PLATFORM_MANIFEST_ROOT", join(runnerTemp, "release-platform-manifests"));
+const platformManifestPrefix = optional("PLATFORM_MANIFEST_PREFIX", `${latestPrefix}/platforms`).replace(/^\/+|\/+$/g, "");
 const requestedAssetVersionSuffix = optional("ASSET_VERSION_SUFFIX");
 
 const platformDefs = [
@@ -93,7 +106,7 @@ const failedPlatforms: string[] = [];
 for (const def of platformDefs) {
   if (!enabled(def.env)) continue;
   expectedPlatforms.push(def.key);
-  const manifest = readManifest(def.key);
+  const manifest = await readManifest(def.key);
   if (manifest != null && def.result === "success") {
     platforms[def.key] = {
       ...manifest,

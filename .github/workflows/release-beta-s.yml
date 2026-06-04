@@ -28,7 +28,7 @@ on:
         description: "Explicit anonymous-read public origin for the self-hosted S3 publish target."
         required: true
         type: string
-        default: ""
+        default: "https://s3.nexu.space/od-releases"
       win_update_metadata_url:
         description: "Optional external updater metadata URL for full Windows smoke."
         required: false
@@ -108,6 +108,7 @@ jobs:
     env:
       OPEN_DESIGN_RELEASE_PROFILE: /Users/runner/.profile
       OPEN_DESIGN_BETA_METADATA_URL: ${{ inputs.s3_public_origin }}/beta/latest/metadata.json
+      OPEN_DESIGN_STABLE_METADATA_URL: https://releases.open-design.ai/stable/latest/metadata.json
     outputs:
       asset_version_suffix: ${{ steps.beta.outputs.asset_version_suffix }}
       base_version: ${{ steps.beta.outputs.base_version }}
@@ -128,10 +129,6 @@ jobs:
           sparse-checkout: |
             apps/packaged/package.json
             scripts/release-beta.ts
-
-      - name: Fetch stable release tags
-        working-directory: _release-metadata
-        run: git fetch --force --depth=1 origin "+refs/tags/open-design-v*:refs/tags/open-design-v*"
 
       - name: Validate self-hosted beta inputs
         run: |
@@ -215,16 +212,6 @@ jobs:
           @echo on
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .github\scripts\release\report\win.ps1
 
-      - name: Upload windows e2e spec report
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: open-design-beta-win-e2e-report
-          path: |
-            C:\.tmp\runner\od-beta\win\release-report\win
-            C:\.tmp\runner\od-beta\win\release-report\win-report.zip
-          if-no-files-found: warn
-
       - name: Publish beta candidate platform to Nexu S3
         id: publish_platform
         if: ${{ inputs.publish }}
@@ -240,13 +227,6 @@ jobs:
         run: |
           @echo on
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .github\scripts\release\publish-platform.ps1 -IndexPath "C:\.tmp\runner\od-beta\win\index\index.json" -ChannelPrefix beta -Platform win -Probe -Publish
-
-      - name: Upload windows publish manifest
-        if: ${{ inputs.publish }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: open-design-beta-win-publish-manifest
-          path: C:\.tmp\runner\od-beta\win\publish\manifests\win.json
 
       - name: Publish local summary
         if: ${{ always() }}
@@ -311,17 +291,6 @@ jobs:
           SUMMARY_TITLE: macOS self-hosted tools-pack build
         run: bash .github/scripts/release/report/mac.sh
 
-      - name: Upload mac build diagnostics
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: open-design-beta-mac-build-diagnostics
-          path: |
-            ${{ runner.temp }}/mac-tools-pack-build.log
-            ${{ runner.temp }}/mac-tools-pack-build.json
-            ${{ runner.temp }}/mac-framework-diagnostics.txt
-          if-no-files-found: warn
-
       - name: Smoke beta mac packaged runtime
         if: ${{ inputs.mac_smoke_mode != 'skip' }}
         working-directory: _release-build/e2e
@@ -362,16 +331,6 @@ jobs:
           SUMMARY_TITLE: macOS self-hosted tools-pack build after smoke
           WRITE_STEP_SUMMARY: "false"
         run: bash .github/scripts/release/report/mac.sh
-
-      - name: Upload mac e2e spec report
-        if: ${{ always() && inputs.mac_smoke_mode != 'skip' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: open-design-beta-mac-e2e-report
-          path: |
-            ${{ runner.temp }}/release-report/mac
-            ${{ runner.temp }}/release-report/mac-report.zip
-          if-no-files-found: warn
 
       - name: Prune mac tools-pack cache
         if: ${{ always() }}
@@ -426,14 +385,6 @@ jobs:
           source "$OPEN_DESIGN_RELEASE_PROFILE"
           node --experimental-strip-types .github/scripts/release/r2/publish-platform.ts
 
-      - name: Upload mac publish manifest
-        if: ${{ inputs.publish }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: open-design-beta-mac-publish-manifest
-          path: ${{ runner.temp }}/release-platform-manifests/mac.json
-          if-no-files-found: error
-
   publish:
     name: Publish beta metadata to Nexu S3
     needs:
@@ -464,20 +415,6 @@ jobs:
           sparse-checkout: |
             .github/scripts/release/r2/
 
-      - name: Download windows publish manifest
-        if: ${{ inputs.win_enable && needs.build_win.result == 'success' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: open-design-beta-win-publish-manifest
-          path: ${{ runner.temp }}/release-platform-manifests
-
-      - name: Download mac publish manifest
-        if: ${{ inputs.mac_enable && needs.build_mac.result == 'success' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: open-design-beta-mac-publish-manifest
-          path: ${{ runner.temp }}/release-platform-manifests
-
       - name: Publish beta metadata to Nexu S3
         id: publish_metadata
         working-directory: _release-publish
@@ -497,6 +434,7 @@ jobs:
           ENABLE_LINUX: "false"
           ENABLE_WIN: ${{ inputs.win_enable }}
           MAC_RESULT: ${{ needs.build_mac.result }}
+          PLATFORM_MANIFEST_PREFIX: beta/latest/platforms
           PLATFORM_MANIFEST_ROOT: ${{ runner.temp }}/release-platform-manifests
           RELEASE_CHANNEL: beta
           RELEASE_SIGNED: "false"

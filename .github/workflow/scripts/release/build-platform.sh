@@ -40,6 +40,12 @@ measure_step() {
 }
 
 prepare_mac_signing() {
+  if [ -n "${CSC_KEYCHAIN:-}" ]; then
+    unset CSC_LINK
+    unset CSC_KEY_PASSWORD
+    return 0
+  fi
+
   required APPLE_SIGNING_CERTIFICATE_BASE64
   required APPLE_SIGNING_CERTIFICATE_PASSWORD
 
@@ -226,4 +232,3 @@ else
 fi
 
 write_outputs
-

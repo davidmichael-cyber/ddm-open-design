@@ -592,10 +592,9 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("fnm exec --using=24 -- bash .github/workflow/scripts/release/build-platform.sh");
     expect(workflow).toContain('& "C:\\Users\\runner\\.cargo\\bin\\fnm.exe" exec --using=24 -- pwsh -NoProfile -File .\\.github\\workflow\\scripts\\release\\build-platform.ps1');
     expect(workflow).toContain("corepack prepare pnpm@10.33.2 --activate");
-    expect(workflow).toContain("npm install --global pnpm@10.33.2");
     expect(workflow).toContain("pnpm install --frozen-lockfile");
+    expect(workflow).toContain("sudo -n \"$OPEN_DESIGN_MAC_SIGNING_HELPER\" \"$cert_path\" \"$password_path\"");
     expect(workflow).not.toContain("PATH: /usr/local/libexec/open-design/wrappers:${{ env.PATH }}");
-    expect(workflow).not.toContain("clean: false");
     expect(posixBuildScript).not.toContain("fnm");
     expect(posixBuildScript).not.toContain("corepack");
     expect(posixBuildScript).not.toContain("pnpm install");

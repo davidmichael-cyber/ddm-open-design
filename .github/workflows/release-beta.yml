@@ -823,7 +823,11 @@ jobs:
         !cancelled() &&
         inputs.publish &&
         needs.metadata.result == 'success' &&
-        (inputs.enable_mac_arm64 || inputs.enable_win_x64 || inputs.enable_mac_x64 || inputs.enable_linux_x64)
+        (inputs.enable_mac_arm64 || inputs.enable_win_x64 || inputs.enable_mac_x64 || inputs.enable_linux_x64) &&
+        (!inputs.enable_mac_arm64 || needs.build_mac_arm64.result == 'success') &&
+        (!inputs.enable_win_x64 || needs.build_win_x64.result == 'success') &&
+        (!inputs.enable_mac_x64 || needs.build_mac_x64.result == 'success') &&
+        (!inputs.enable_linux_x64 || needs.build_linux_x64.result == 'success')
       }}
     runs-on: ubuntu-latest
     outputs:

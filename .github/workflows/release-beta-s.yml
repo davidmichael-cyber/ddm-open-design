@@ -438,6 +438,19 @@ jobs:
           # shellcheck disable=SC1090
           source "$OPEN_DESIGN_RELEASE_PROFILE"
           export PATH="/usr/local/libexec/open-design/wrappers:$PATH"
+          if [ "${{ inputs.mac_arm64_sign_mode }}" != "no" ] && [ -n "${OPEN_DESIGN_MAC_SIGNING_HELPER:-}" ]; then
+            cert_path="${{ runner.temp }}/open-design-signing.p12"
+            password_path="${{ runner.temp }}/open-design-signing.p12.password"
+            if ! printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 --decode > "$cert_path" 2>/dev/null; then
+              printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 -D > "$cert_path"
+            fi
+            printf '%s' "$APPLE_SIGNING_CERTIFICATE_PASSWORD" > "$password_path"
+            chmod 600 "$password_path"
+            sudo -n "$OPEN_DESIGN_MAC_SIGNING_HELPER" "$cert_path" "$password_path"
+            rm -f "$password_path"
+            export CSC_KEYCHAIN="${OPEN_DESIGN_MAC_SIGNING_KEYCHAIN:-/Library/Keychains/open-design-release-signing.keychain}"
+            security list-keychains -d user -s "$CSC_KEYCHAIN" /Library/Keychains/System.keychain
+          fi
           fnm exec --using=24 -- bash .github/workflow/scripts/release/build-platform.sh
 
       - name: Write mac_arm64 release report
@@ -533,15 +546,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
         with:
-          clean: true
+          clean: false
           fetch-depth: 1
           lfs: false
 
       - name: Prepare self-hosted Windows toolchain
         shell: pwsh
         run: |
-          & "C:\Users\runner\.cargo\bin\fnm.exe" exec --using=24 -- npm install --global pnpm@10.33.2
-          & "C:\Users\runner\.cargo\bin\fnm.exe" exec --using=24 -- pnpm install --frozen-lockfile --prefer-offline
+          pnpm install --frozen-lockfile --prefer-offline
 
       - name: Probe Windows signing capability
         id: sign_probe
@@ -659,7 +671,9 @@ jobs:
         !cancelled() &&
         inputs.publish &&
         needs.metadata.result == 'success' &&
-        (inputs.enable_mac_arm64 || inputs.enable_win_x64)
+        (inputs.enable_mac_arm64 || inputs.enable_win_x64) &&
+        (!inputs.enable_mac_arm64 || needs.build_mac_arm64.result == 'success') &&
+        (!inputs.enable_win_x64 || needs.build_win_x64.result == 'success')
       }}
     runs-on: [self-hosted, macOS, ARM64, nexu-mac, release-beta]
     timeout-minutes: 10

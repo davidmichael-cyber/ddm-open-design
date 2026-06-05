@@ -160,25 +160,30 @@ jobs:
           retention-days: 7
 
   daemon:
-    name: Runner CI daemon
+    name: Runner CI daemon ${{ matrix.shard }}/4
     if: ${{ inputs.mode == 'all' || inputs.mode == 'daemon' }}
     runs-on: [self-hosted, Linux, ARM64, nexu-spark, open-design-ci]
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
-      OD_CI_MODE: daemon
+      OD_CI_DAEMON_SHARD: ${{ matrix.shard }}/4
+      OD_CI_MODE: daemon-shard
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
       - name: Run CI script
-        run: .github/workflows/scripts/ci.sh daemon
+        run: .github/workflows/scripts/ci.sh daemon-shard
 
       - name: Upload CI manifest
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: ci-runner-daemon-${{ github.run_id }}
+          name: ci-runner-daemon-${{ matrix.shard }}of4-${{ github.run_id }}
           path: .od/ci/*-manifest.json
           if-no-files-found: warn
           retention-days: 7

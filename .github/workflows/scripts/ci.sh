@@ -4,7 +4,7 @@ set -Eeuo pipefail
 mode="${1:-${OD_CI_MODE:-}}"
 
 if [ -z "$mode" ]; then
-  echo "usage: $0 <probe|setup|policy|unit|typecheck|daemon|web|build|browser>" >&2
+  echo "usage: $0 <probe|setup|policy|unit|typecheck|daemon|daemon-shard|web|build|browser>" >&2
   exit 2
 fi
 
@@ -43,7 +43,7 @@ capture_cmd() {
 
 require_mode() {
   case "$mode" in
-    probe | setup | policy | unit | typecheck | daemon | web | build | browser) ;;
+    probe | setup | policy | unit | typecheck | daemon | daemon-shard | web | build | browser) ;;
     *)
       echo "unknown CI mode: $mode" >&2
       exit 2
@@ -65,6 +65,7 @@ pnpm_store_dir="${OD_CI_PNPM_STORE_DIR:-}"
 playwright_install_flags="${OD_CI_PLAYWRIGHT_INSTALL_FLAGS:-chromium}"
 step_timeout_seconds="${OD_CI_STEP_TIMEOUT_SECONDS:-600}"
 corepack_home="${COREPACK_HOME:-}"
+daemon_shard="${OD_CI_DAEMON_SHARD:-}"
 runner_name="${RUNNER_NAME:-unknown}"
 runner_os="${RUNNER_OS:-unknown}"
 runner_arch="${RUNNER_ARCH:-unknown}"
@@ -95,6 +96,9 @@ append_summary "| Runner OS | \`$runner_os\` |"
 append_summary "| Runner arch | \`$runner_arch\` |"
 append_summary "| Ref | \`$github_ref\` |"
 append_summary "| SHA | \`$github_sha\` |"
+if [ -n "$daemon_shard" ]; then
+  append_summary "| Daemon shard | \`$daemon_shard\` |"
+fi
 
 node_version="$(capture_cmd node node --version)"
 npm_version="$(capture_cmd npm npm --version)"
@@ -224,7 +228,7 @@ e2e_vitest_seconds="0"
 playwright_critical_exit_code="0"
 playwright_critical_seconds="0"
 
-if [ "$mode" = "setup" ] || [ "$mode" = "policy" ] || [ "$mode" = "unit" ] || [ "$mode" = "typecheck" ] || [ "$mode" = "daemon" ] || [ "$mode" = "web" ] || [ "$mode" = "build" ] || [ "$mode" = "browser" ]; then
+if [ "$mode" = "setup" ] || [ "$mode" = "policy" ] || [ "$mode" = "unit" ] || [ "$mode" = "typecheck" ] || [ "$mode" = "daemon" ] || [ "$mode" = "daemon-shard" ] || [ "$mode" = "web" ] || [ "$mode" = "build" ] || [ "$mode" = "browser" ]; then
   package_manager="$(node -p "require('./package.json').packageManager")"
   append_summary ""
   append_summary "### Corepack"
@@ -457,7 +461,7 @@ record_daemon_result() {
   fi
 }
 
-if [ "$mode" = "daemon" ] && [ "$install_exit_code" = "0" ]; then
+if { [ "$mode" = "daemon" ] || [ "$mode" = "daemon-shard" ]; } && [ "$install_exit_code" = "0" ]; then
   append_summary ""
   append_summary "### Daemon workspace tests"
   append_summary ""
@@ -472,10 +476,14 @@ if [ "$mode" = "daemon" ] && [ "$install_exit_code" = "0" ]; then
   daemon_build_seconds="$last_command_seconds"
   record_daemon_result "@open-design/daemon build" "$daemon_build_exit_code" "$daemon_build_seconds"
 
-  run_ci_command "@open-design/daemon test" pnpm --filter @open-design/daemon test
+  if [ "$mode" = "daemon-shard" ]; then
+    run_ci_command "@open-design/daemon test shard $daemon_shard" pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts --shard "$daemon_shard"
+  else
+    run_ci_command "@open-design/daemon test" pnpm --filter @open-design/daemon test
+  fi
   daemon_test_exit_code="$last_command_exit_code"
   daemon_test_seconds="$last_command_seconds"
-  record_daemon_result "@open-design/daemon test" "$daemon_test_exit_code" "$daemon_test_seconds"
+  record_daemon_result "@open-design/daemon test${daemon_shard:+ shard $daemon_shard}" "$daemon_test_exit_code" "$daemon_test_seconds"
 
   daemon_seconds="$(( $(date +%s) - daemon_start ))"
 fi
@@ -662,6 +670,7 @@ cat > "$manifest" <<JSON
   "githubRef": "$(json_escape "$github_ref")",
   "githubSha": "$(json_escape "$github_sha")",
   "githubRunId": "$(json_escape "$github_run_id")",
+  "daemonShard": "$(json_escape "$daemon_shard")",
   "kernel": "$(json_escape "$kernel")",
   "gitVersion": "$(json_escape "$git_version")",
   "nodeVersion": "$(json_escape "$node_version")",

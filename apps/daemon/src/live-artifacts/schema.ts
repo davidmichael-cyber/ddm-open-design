@@ -448,6 +448,39 @@ function validateSourceInputPaths(value: BoundedJsonValue, path: string, issues:
   }
 }
 
+// Mirrors executeLocalDaemonRefreshSource: a local_file source reads JSON via
+// project_files.read_json unless it carries another explicit daemon toolName.
+function resolveDaemonRefreshToolName(
+  type: LiveArtifactSource['type'] | undefined,
+  toolName: string | undefined,
+): string | undefined {
+  if (type === 'local_file') return toolName ?? 'project_files.read_json';
+  if (type === 'daemon_tool') return toolName;
+  return undefined;
+}
+
+// project_files.read_json fails every refresh unless input names a file to read
+// (selectJsonPath in refresh.ts requires path/file/name). Reject such sources at
+// registration so the agent's fallback runs instead of persisting a source that
+// can only ever fail.
+function validateDaemonRefreshRequiredInput(
+  effectiveTool: string | undefined,
+  input: BoundedJsonObject,
+  path: string,
+  issues: LiveArtifactValidationIssue[],
+): void {
+  if (effectiveTool !== 'project_files.read_json') return;
+  const hasTarget = ['path', 'file', 'name'].some(
+    (key) => typeof input[key] === 'string' && (input[key] as string).trim().length > 0,
+  );
+  if (!hasTarget) {
+    issues.push({
+      path: `${path}.path`,
+      message: `${path}.path is required for project_files.read_json sources (or provide ${path}.file / ${path}.name)`,
+    });
+  }
+}
+
 function validatePreview(value: unknown, path: string, issues: LiveArtifactValidationIssue[]): LiveArtifactPreview | undefined {
   if (!isPlainObject(value)) {
     issues.push({ path, message: `${path} must be an object` });
@@ -487,7 +520,10 @@ function validateSource(value: unknown, path: string, issues: LiveArtifactValida
   const toolName = asOptionalString(value.toolName, `${path}.toolName`, issues, MAX_ID_LENGTH);
   const inputResult = validateBoundedJsonObject(value.input, `${path}.input`);
   if (!inputResult.ok) issues.push(...inputResult.issues);
-  else validateSourceInputPaths(inputResult.value, `${path}.input`, issues);
+  else {
+    validateSourceInputPaths(inputResult.value, `${path}.input`, issues);
+    validateDaemonRefreshRequiredInput(resolveDaemonRefreshToolName(type, toolName), inputResult.value, `${path}.input`, issues);
+  }
 
   let connector: LiveArtifactSource['connector'];
   if (value.connector !== undefined) {

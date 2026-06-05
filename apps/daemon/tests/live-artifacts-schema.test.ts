@@ -268,6 +268,64 @@ describe('live artifact schema validation', () => {
     }
   });
 
+  it('rejects project_files.read_json sources whose input names no file to read', () => {
+    const daemonTool = validateLiveArtifactCreateInput({
+      ...validCreateInput(),
+      document: {
+        ...validCreateInput().document,
+        sourceJson: {
+          type: 'daemon_tool',
+          toolName: 'project_files.read_json',
+          input: { query: 'launch' },
+          refreshPermission: 'manual_refresh_granted_for_read_only',
+        },
+      },
+    });
+    const localFile = validateLiveArtifactCreateInput({
+      ...validCreateInput(),
+      document: {
+        ...validCreateInput().document,
+        sourceJson: {
+          type: 'local_file',
+          input: {},
+          refreshPermission: 'manual_refresh_granted_for_read_only',
+        },
+      },
+    });
+
+    expect(daemonTool.ok).toBe(false);
+    if (!daemonTool.ok) {
+      expect(daemonTool.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: 'input.document.sourceJson.input.path' }),
+      ]));
+    }
+    expect(localFile.ok).toBe(false);
+    if (!localFile.ok) {
+      expect(localFile.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ path: 'input.document.sourceJson.input.path' }),
+      ]));
+    }
+  });
+
+  it('accepts project_files.read_json sources that name a file via path, file, or name', () => {
+    for (const input of [{ path: 'reports/data.json' }, { file: 'reports/data.json' }, { name: 'data.json' }]) {
+      const result = validateLiveArtifactCreateInput({
+        ...validCreateInput(),
+        document: {
+          ...validCreateInput().document,
+          sourceJson: {
+            type: 'local_file',
+            toolName: 'project_files.read_json',
+            input,
+            refreshPermission: 'manual_refresh_granted_for_read_only',
+          },
+        },
+      });
+
+      expect(result.ok).toBe(true);
+    }
+  });
+
   it('rejects oversized bounded JSON payloads', () => {
     const oversized = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`field${index}`, 'x'.repeat(3_000)]));
     const result = validateBoundedJsonObject(oversized, 'data');

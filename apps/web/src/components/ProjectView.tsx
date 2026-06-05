@@ -977,6 +977,8 @@ export function ProjectView({
     tabs: [],
     active: null,
   });
+  const routeFileNameRef = useRef(routeFileName);
+  routeFileNameRef.current = routeFileName;
   const [activeWorkspaceContext, setActiveWorkspaceContext] =
     useState<WorkspaceContextItem | null>(null);
   const [workspaceContexts, setWorkspaceContexts] = useState<WorkspaceContextItem[]>([]);
@@ -1470,8 +1472,22 @@ export function ProjectView({
     (async () => {
       const state = await loadTabs(project.id);
       if (cancelled) return;
+      const routeActive = routeFileNameRef.current;
+      let nextState = routeActive
+        ? {
+            ...state,
+            tabs: state.tabs.includes(routeActive)
+              ? state.tabs
+              : [...state.tabs, routeActive],
+            active: routeActive,
+          }
+        : state;
+      if (routeActive) {
+        nextState = cacheTabsLocally(project.id, nextState);
+        void persistTabsToDaemonNow(project.id, nextState);
+      }
       tabsHydratedFromSavedStateRef.current = state.hasSavedState === true;
-      setOpenTabsState(state);
+      setOpenTabsState(nextState);
       tabsLoadedRef.current = true;
     })();
     return () => {

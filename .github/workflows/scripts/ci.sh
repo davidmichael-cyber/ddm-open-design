@@ -4,7 +4,7 @@ set -Eeuo pipefail
 mode="${1:-${OD_CI_MODE:-}}"
 
 if [ -z "$mode" ]; then
-  echo "usage: $0 <probe|setup|policy|unit|typecheck|daemon|web|build>" >&2
+  echo "usage: $0 <probe|setup|policy|unit|typecheck|daemon|web|build|browser>" >&2
   exit 2
 fi
 
@@ -43,7 +43,7 @@ capture_cmd() {
 
 require_mode() {
   case "$mode" in
-    probe | setup | policy | unit | typecheck | daemon | web | build) ;;
+    probe | setup | policy | unit | typecheck | daemon | web | build | browser) ;;
     *)
       echo "unknown CI mode: $mode" >&2
       exit 2
@@ -62,6 +62,7 @@ pnpm_fetch_retry_mintimeout="${OD_CI_PNPM_FETCH_RETRY_MINTIMEOUT:-20000}"
 pnpm_install_flags="${OD_CI_PNPM_INSTALL_FLAGS:---frozen-lockfile}"
 pnpm_network_timeout="${OD_CI_PNPM_NETWORK_TIMEOUT:-180000}"
 pnpm_store_dir="${OD_CI_PNPM_STORE_DIR:-}"
+playwright_install_flags="${OD_CI_PLAYWRIGHT_INSTALL_FLAGS:-chromium}"
 step_timeout_seconds="${OD_CI_STEP_TIMEOUT_SECONDS:-600}"
 runner_name="${RUNNER_NAME:-unknown}"
 runner_os="${RUNNER_OS:-unknown}"
@@ -203,8 +204,17 @@ build_exit_code="0"
 build_seconds="0"
 workspace_build_exit_code="0"
 workspace_build_seconds="0"
+browser_status="skipped"
+browser_exit_code="0"
+browser_seconds="0"
+playwright_install_exit_code="0"
+playwright_install_seconds="0"
+e2e_vitest_exit_code="0"
+e2e_vitest_seconds="0"
+playwright_critical_exit_code="0"
+playwright_critical_seconds="0"
 
-if [ "$mode" = "setup" ] || [ "$mode" = "policy" ] || [ "$mode" = "unit" ] || [ "$mode" = "typecheck" ] || [ "$mode" = "daemon" ] || [ "$mode" = "web" ] || [ "$mode" = "build" ]; then
+if [ "$mode" = "setup" ] || [ "$mode" = "policy" ] || [ "$mode" = "unit" ] || [ "$mode" = "typecheck" ] || [ "$mode" = "daemon" ] || [ "$mode" = "web" ] || [ "$mode" = "build" ] || [ "$mode" = "browser" ]; then
   append_summary ""
   append_summary "### Install"
   append_summary ""
@@ -518,6 +528,67 @@ if [ "$mode" = "build" ] && [ "$install_exit_code" = "0" ]; then
   build_seconds="$(( $(date +%s) - build_start ))"
 fi
 
+record_browser_result() {
+  local label="$1"
+  local exit_code="$2"
+  local seconds="$3"
+
+  append_summary "| \`$label\` | \`$exit_code\` | \`$seconds\` |"
+  if [ "$exit_code" != "0" ] && [ "$browser_status" = "ok" ]; then
+    browser_status="failed"
+    browser_exit_code="$exit_code"
+  fi
+}
+
+if [ "$mode" = "browser" ] && [ "$install_exit_code" = "0" ]; then
+  append_summary ""
+  append_summary "### Browser tests"
+  append_summary ""
+  append_summary "Playwright install flags: \`$playwright_install_flags\`"
+  append_summary ""
+  append_summary "| Check | Exit code | Seconds |"
+  append_summary "| --- | ---: | ---: |"
+
+  browser_status="ok"
+  browser_start="$(date +%s)"
+
+  # shellcheck disable=SC2086
+  run_ci_command "playwright install" pnpm -C e2e exec playwright install $playwright_install_flags
+  playwright_install_exit_code="$last_command_exit_code"
+  playwright_install_seconds="$last_command_seconds"
+  record_browser_result "playwright install" "$playwright_install_exit_code" "$playwright_install_seconds"
+
+  run_ci_command "@open-design/daemon build" pnpm --filter @open-design/daemon build
+  daemon_build_exit_code="$last_command_exit_code"
+  daemon_build_seconds="$last_command_seconds"
+  record_browser_result "@open-design/daemon build" "$daemon_build_exit_code" "$daemon_build_seconds"
+
+  run_ci_command "@open-design/desktop build" pnpm --filter @open-design/desktop build
+  desktop_build_exit_code="$last_command_exit_code"
+  desktop_build_seconds="$last_command_seconds"
+  record_browser_result "@open-design/desktop build" "$desktop_build_exit_code" "$desktop_build_seconds"
+
+  run_ci_command "@open-design/web build:sidecar" pnpm --filter @open-design/web build:sidecar
+  web_sidecar_build_exit_code="$last_command_exit_code"
+  web_sidecar_build_seconds="$last_command_seconds"
+  record_browser_result "@open-design/web build:sidecar" "$web_sidecar_build_exit_code" "$web_sidecar_build_seconds"
+
+  run_ci_command "e2e vitest" pnpm --filter @open-design/e2e test
+  e2e_vitest_exit_code="$last_command_exit_code"
+  e2e_vitest_seconds="$last_command_seconds"
+  record_browser_result "e2e vitest" "$e2e_vitest_exit_code" "$e2e_vitest_seconds"
+
+  run_ci_command "playwright clean" pnpm -C e2e exec tsx scripts/playwright.ts clean
+  record_browser_result "playwright clean" "$last_command_exit_code" "$last_command_seconds"
+
+  run_ci_command "playwright critical" pnpm -C e2e exec playwright test -c playwright.config.ts ui/critical-smoke.test.ts ui/entry-chrome-flows.test.ts
+  playwright_critical_exit_code="$last_command_exit_code"
+  playwright_critical_seconds="$last_command_seconds"
+  record_browser_result "playwright critical" "$playwright_critical_exit_code" "$playwright_critical_seconds"
+
+  browser_seconds="$(( $(date +%s) - browser_start ))"
+fi
+
 if [ -n "$pnpm_store" ] && [ -d "$pnpm_store" ]; then
   pnpm_store_size="$(du -sh "$pnpm_store" 2>/dev/null | awk '{print $1}')"
 fi
@@ -544,6 +615,8 @@ append_summary "| Web status | \`$web_status\` |"
 append_summary "| Web seconds | \`$web_seconds\` |"
 append_summary "| Build status | \`$build_status\` |"
 append_summary "| Build seconds | \`$build_seconds\` |"
+append_summary "| Browser status | \`$browser_status\` |"
+append_summary "| Browser seconds | \`$browser_seconds\` |"
 
 cat > "$manifest" <<JSON
 {
@@ -568,6 +641,7 @@ cat > "$manifest" <<JSON
   "pnpmFetchRetryMinTimeout": "$(json_escape "$pnpm_fetch_retry_mintimeout")",
   "pnpmInstallFlags": "$(json_escape "$pnpm_install_flags")",
   "pnpmNetworkTimeout": "$(json_escape "$pnpm_network_timeout")",
+  "playwrightInstallFlags": "$(json_escape "$playwright_install_flags")",
   "stepTimeoutSeconds": "$(json_escape "$step_timeout_seconds")",
   "installStatus": "$(json_escape "$install_status")",
   "installExitCode": "$(json_escape "$install_exit_code")",
@@ -625,6 +699,15 @@ cat > "$manifest" <<JSON
   "buildSeconds": "$(json_escape "$build_seconds")",
   "workspaceBuildExitCode": "$(json_escape "$workspace_build_exit_code")",
   "workspaceBuildSeconds": "$(json_escape "$workspace_build_seconds")",
+  "browserStatus": "$(json_escape "$browser_status")",
+  "browserExitCode": "$(json_escape "$browser_exit_code")",
+  "browserSeconds": "$(json_escape "$browser_seconds")",
+  "playwrightInstallExitCode": "$(json_escape "$playwright_install_exit_code")",
+  "playwrightInstallSeconds": "$(json_escape "$playwright_install_seconds")",
+  "e2eVitestExitCode": "$(json_escape "$e2e_vitest_exit_code")",
+  "e2eVitestSeconds": "$(json_escape "$e2e_vitest_seconds")",
+  "playwrightCriticalExitCode": "$(json_escape "$playwright_critical_exit_code")",
+  "playwrightCriticalSeconds": "$(json_escape "$playwright_critical_seconds")",
   "dockerVersion": "$(json_escape "$docker_version")",
   "dockerStatus": "$(json_escape "$docker_status")",
   "rootDisk": "$(json_escape "$disk_root")",
@@ -660,4 +743,8 @@ fi
 
 if [ "$build_exit_code" != "0" ]; then
   exit "$build_exit_code"
+fi
+
+if [ "$browser_exit_code" != "0" ]; then
+  exit "$browser_exit_code"
 fi

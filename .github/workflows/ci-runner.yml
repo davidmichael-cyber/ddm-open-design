@@ -17,6 +17,7 @@ on:
           - daemon
           - web
           - build
+          - browser
 
 permissions:
   contents: read
@@ -37,6 +38,7 @@ jobs:
       OD_CI_PNPM_INSTALL_FLAGS: "--frozen-lockfile --prefer-offline --network-concurrency=8"
       OD_CI_PNPM_NETWORK_TIMEOUT: "180000"
       OD_CI_PNPM_STORE_DIR: /home/runner/.cache/open-design-ci/pnpm-store
+      OD_CI_PLAYWRIGHT_INSTALL_FLAGS: "chromium"
       OD_CI_STEP_TIMEOUT_SECONDS: "600"
     steps:
       - name: Checkout

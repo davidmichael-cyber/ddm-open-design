@@ -234,6 +234,14 @@ export async function validateDesignTokensJson(
   }
   const tokenDeclarations = parseRootTokenDeclarations(tokensCss);
   for (const binding of report.tokens) {
+    validateTokenSourceLineReferences(
+      violations,
+      repositoryManifestPath,
+      reportPath,
+      tokensPath,
+      tokensCss,
+      binding,
+    );
     const declaredValue = tokenDeclarations.get(binding.name);
     if (declaredValue === undefined) {
       violations.push(`${repositoryManifestPath}: ${reportPath} token ${binding.name} is missing from ${tokensPath}`);
@@ -340,6 +348,42 @@ function parseRootTokenDeclarations(css: string): Map<string, string> {
     );
   }
   return declarations;
+}
+
+function validateTokenSourceLineReferences(
+  violations: string[],
+  repositoryManifestPath: string,
+  reportPath: string,
+  tokensPath: string,
+  tokensCss: string,
+  binding: DerivedDesignTokenBinding,
+): void {
+  const lines = tokensCss.split(/\r?\n/);
+  let hasTokensCssSource = false;
+  for (const source of binding.sources) {
+    const reference = parseTokenSourceReference(source, tokensPath);
+    if (reference === undefined) continue;
+    hasTokensCssSource = true;
+    const line = lines[reference.line - 1];
+    if (line === undefined || !line.includes(binding.name)) {
+      violations.push(
+        `${repositoryManifestPath}: ${reportPath} token ${binding.name} source ${source} must point to a ${tokensPath} line declaring ${binding.name}`,
+      );
+    }
+  }
+  if (!hasTokensCssSource) {
+    violations.push(
+      `${repositoryManifestPath}: ${reportPath} token ${binding.name} must cite a ${tokensPath}:<line> source`,
+    );
+  }
+}
+
+function parseTokenSourceReference(source: string, tokensPath: string): { line: number } | undefined {
+  const prefix = `${tokensPath}:`;
+  if (!source.startsWith(prefix)) return undefined;
+  const line = Number(source.slice(prefix.length));
+  if (!Number.isInteger(line) || line < 1) return undefined;
+  return { line };
 }
 
 function normalizeTokenValue(value: string): string {

@@ -13,7 +13,26 @@ export interface BaseUrlValidationResult {
 export interface ParsedBaseUrl {
   protocol: string;
   hostname: string;
+  // Explicit port (if present in URL) or protocol default (https→443, http→80).
+  // Required so host+port matching works without special-casing the omitted-port case.
+  effectivePort: number;
   toString(): string;
+}
+
+// DDM: literal-IP allowlist for Tailscale egress (100.x.x.x CGNAT range).
+// Exact IPv4+port match only — no wildcards, no CIDR, no hostnames.
+export interface LiteralIpAllowlistEntry {
+  host: string;   // exact IPv4 dotted-decimal
+  port: number;   // exact port
+  label: string;  // for startup log + audit
+}
+
+export function isLiteralIpAllowlisted(
+  parsed: ParsedBaseUrl,
+  allowlist: readonly LiteralIpAllowlistEntry[],
+): boolean {
+  const hostname = parsed.hostname.toLowerCase();
+  return allowlist.some(e => e.host === hostname && e.port === parsed.effectivePort);
 }
 
 declare const URL: {
@@ -107,10 +126,20 @@ export function isBlockedExternalApiHostname(hostname: string): boolean {
   return Boolean(mapped && isBlockedIpv4(mapped));
 }
 
-export function validateBaseUrl(baseUrl: string): BaseUrlValidationResult {
+export function validateBaseUrl(
+  baseUrl: string,
+  allowlist: readonly LiteralIpAllowlistEntry[] = [],
+): BaseUrlValidationResult {
   let parsed: ParsedBaseUrl;
   try {
-    parsed = new URL(String(baseUrl).replace(/\/+$/, ''));
+    const rawUrl = new URL(String(baseUrl).replace(/\/+$/, ''));
+    // URL.port is a string (empty when not explicit). Cast to access it since
+    // ParsedBaseUrl doesn't declare .port — the real URL object always has it.
+    const portStr = (rawUrl as unknown as { port: string }).port;
+    const effectivePort = portStr
+      ? parseInt(portStr, 10)
+      : rawUrl.protocol === 'https:' ? 443 : 80;
+    parsed = Object.assign(rawUrl, { effectivePort });
   } catch {
     return { error: 'Invalid baseUrl' };
   }
@@ -118,6 +147,10 @@ export function validateBaseUrl(baseUrl: string): BaseUrlValidationResult {
     return { error: 'Only http/https allowed' };
   }
   const hostname = parsed.hostname.toLowerCase();
+  // DDM: allow Tailscale literal-IP targets before private-range rejection.
+  if (allowlist.length > 0 && isLiteralIpAllowlisted(parsed, allowlist)) {
+    return { parsed };
+  }
   if (!isLoopbackApiHost(hostname) && isBlockedExternalApiHostname(hostname)) {
     return { error: 'Internal IPs blocked', forbidden: true };
   }

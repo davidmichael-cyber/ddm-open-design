@@ -59,8 +59,9 @@ import type { RuntimeAgentDef } from './runtimes/types.js';
 import { resolveModelForAgent } from './runtimes/models.js';
 import {
   isBlockedExternalApiHostname,
+  isLiteralIpAllowlisted,
   isLoopbackApiHost,
-  validateBaseUrl,
+  validateBaseUrl as validateBaseUrlFromContracts,
   type AgentTestRequest,
   type BaseUrlValidationResult,
   type ConnectionTestDiagnostics,
@@ -68,12 +69,32 @@ import {
   type ConnectionTestPhase,
   type ConnectionTestProtocol,
   type ConnectionTestResponse,
+  type LiteralIpAllowlistEntry,
   type ParsedBaseUrl,
   type ProviderTestRequest,
 } from '@open-design/contracts/api/connectionTest';
 import { googleGenerateContentUrl } from './google-models.js';
 
-export { validateBaseUrl } from '@open-design/contracts/api/connectionTest';
+// DDM Tailscale egress allowlist. Exact IPv4+port only — no CIDR, no hostnames.
+// Loaded at daemon startup; requires daemon restart to pick up changes.
+export const DDM_LITERAL_IP_ALLOWLIST: readonly LiteralIpAllowlistEntry[] = [
+  { host: '100.96.148.86', port: 11434, label: 'Z2-ollama' },
+  { host: '100.96.148.86', port: 8822,  label: 'Z2-chromadb-proxy' },
+  { host: '100.96.148.86', port: 8821,  label: 'Z2-chromadb-native' },
+  { host: '100.109.22.4',  port: 11434, label: 'Omen-ollama' },
+];
+
+// Log at module load so daemon startup confirms the allowlist is active.
+for (const entry of DDM_LITERAL_IP_ALLOWLIST) {
+  console.log(`[tailnet-allowlist] ${entry.label}: ${entry.host}:${entry.port}`);
+}
+
+// Re-export validateBaseUrl with the DDM allowlist pre-filled so all callers
+// (including server.ts's synchronous validationDeps) automatically permit
+// Tailscale targets without needing to pass the allowlist explicitly.
+export function validateBaseUrl(baseUrl: string): BaseUrlValidationResult {
+  return validateBaseUrlFromContracts(baseUrl, DDM_LITERAL_IP_ALLOWLIST);
+}
 
 // DNS-aware companion to `validateBaseUrl`. The contracts-side check only
 // inspects the literal hostname string, so a public DNS name pointing at
@@ -112,7 +133,7 @@ export async function validateBaseUrlResolved(
   baseUrl: string,
   lookup: DnsLookupFn = defaultDnsLookup,
 ): Promise<BaseUrlValidationResult> {
-  const sync = validateBaseUrl(baseUrl);
+  const sync = validateBaseUrl(baseUrl); // uses DDM_LITERAL_IP_ALLOWLIST via wrapper above
   if (sync.error || !sync.parsed) return sync;
 
   const hostname = sync.parsed.hostname.toLowerCase();

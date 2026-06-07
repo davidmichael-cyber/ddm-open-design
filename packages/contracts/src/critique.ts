@@ -402,3 +402,29 @@ export interface CritiqueArtifactRef {
   /** Daemon-relative HTTP path the web layer fetches to stream the bytes. */
   url: string;
 }
+
+// ---------------------------------------------------------------------------
+// DDM — VLM verdict-honesty findings schema (Phase 4).
+// Extends OD's existing critique schema; does not replace it.
+// Model: qwen2.5-vl:7b (default) on Z2 Ollama — see directives/ddm-od-vlm-bakeoff.md
+// ---------------------------------------------------------------------------
+
+export const VlmFindingSchema = z.object({
+  severity: z.enum(['critical', 'major', 'minor', 'info']),
+  dimension: z.enum(['hierarchy', 'contrast_a11y', 'spacing', 'brand_token', 'ai_slop', 'layout']),
+  description: z.string(),
+  /** Specific element(s) in the rendered output that drove this finding. */
+  pixelEvidence: z.string(),
+  actionableFix: z.string(),
+});
+
+export const VlmCritiqueResultSchema = z.object({
+  findings: z.array(VlmFindingSchema),
+  /** 0 = completely broken, 1 = pixel-perfect. */
+  overallScore: z.number().min(0).max(1),
+  /** true when findings contains no critical or major entries. */
+  converged: z.boolean(),
+});
+
+export type VlmFinding = z.infer<typeof VlmFindingSchema>;
+export type VlmCritiqueResult = z.infer<typeof VlmCritiqueResultSchema>;

@@ -234,6 +234,10 @@ export interface ComposeInput {
   // Free-form instructions the user set on this specific project.
   // Injected after user-level instructions and before the design system.
   projectInstructions?: string | undefined;
+  // DDM: pre-formatted RAG context block from kb-preflight.ts.
+  // Injected after SKILL.md and before pluginBlock/metaBlock so domain
+  // knowledge sits closest to the generation instruction.
+  ddmRetrievedContext?: string | undefined;
 }
 
 export function composeSystemPrompt({
@@ -254,6 +258,7 @@ export function composeSystemPrompt({
   locale,
   userInstructions,
   projectInstructions,
+  ddmRetrievedContext,
 }: ComposeInput): string {
   // Discovery + philosophy goes FIRST so its hard rules ("emit a form on
   // turn 1", "branch on brand on turn 2", "TodoWrite on turn 3", run
@@ -343,6 +348,11 @@ export function composeSystemPrompt({
     parts.push(
       `\n\n## Active skill${skillName ? ` — ${skillName}` : ''}\n\nFollow this skill's workflow exactly.${preflight}\n\n${skillBody.trim()}`,
     );
+  }
+
+  // DDM: inject KB-retrieved context after SKILL.md, before plugin/meta blocks.
+  if (ddmRetrievedContext && ddmRetrievedContext.trim().length > 0) {
+    parts.push(ddmRetrievedContext);
   }
 
   if (pluginBlock && pluginBlock.trim().length > 0) {

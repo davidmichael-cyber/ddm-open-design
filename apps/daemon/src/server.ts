@@ -479,6 +479,7 @@ import { configureConnectorCredentialStore, connectorService, ConnectorServiceEr
 import { composioConnectorProvider } from './connectors/composio.js';
 import { configureComposioConfigStore } from './connectors/composio-config.js';
 import { CHAT_TOOL_ENDPOINTS, CHAT_TOOL_OPERATIONS, toolTokenRegistry } from './tool-tokens.js';
+import { formatRetrievedContextBlock, retrieveDesignContext } from './rag/kb-preflight.js';
 import {
   aggregateCloudflarePagesStatus,
   buildDeployFileSet,
@@ -10424,6 +10425,7 @@ export async function startServer({
     connectedExternalMcp,
     appliedPluginSnapshotId,
     mediaExecution,
+    ddmBrief,
   }) => {
     const project =
       typeof projectId === 'string' && projectId
@@ -10836,6 +10838,17 @@ export async function startServer({
       }
     }
 
+    // DDM Phase 3 — RAG preflight: retrieve KB context before composing the system prompt.
+    let ddmRetrievedContext: string | undefined;
+    if (typeof ddmBrief === 'string' && ddmBrief.trim().length > 0) {
+      try {
+        const ragCtx = await retrieveDesignContext(ddmBrief.trim(), effectiveSkillId ?? '');
+        ddmRetrievedContext = formatRetrievedContextBlock(ragCtx) || undefined;
+      } catch (err) {
+        console.warn('[kb-preflight] retrieval failed, continuing without context:', (err as Error)?.message ?? err);
+      }
+    }
+
     const prompt = composeSystemPrompt({
       agentId,
       includeCodexImagegenOverride: false,
@@ -10881,6 +10894,7 @@ export async function startServer({
       ...(activeStageBlocks ? { activeStageBlocks } : {}),
       userInstructions,
       projectInstructions,
+      ddmRetrievedContext,
     });
     // The chat handler also needs to know where the active skill lives
     // on disk so it can stage a per-project copy of its side files
@@ -11295,6 +11309,8 @@ export async function startServer({
         // prompt composer can splice in `## Active stage` blocks.
         // Default ON; set OD_BUNDLED_ATOM_PROMPTS=0 to opt out.
         appliedPluginSnapshotId: run?.appliedPluginSnapshotId ?? null,
+        // DDM Phase 3: pass user's message as the brief for KB preflight.
+        ddmBrief: typeof message === 'string' ? message : undefined,
       });
 
     // Make skill side files reachable through three layers, in order of

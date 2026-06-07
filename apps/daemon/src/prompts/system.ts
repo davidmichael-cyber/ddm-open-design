@@ -489,6 +489,10 @@ export interface ComposeInput {
   // Run-scoped media policy. Defaults to enabled when omitted so existing
   // local OD behavior keeps the same media prompt contract.
   mediaExecution?: MediaExecutionPolicy | undefined;
+  // DDM: pre-formatted RAG context block from kb-preflight.ts.
+  // Injected after SKILL.md and before pluginBlock/metaBlock so domain
+  // knowledge sits closest to the generation instruction.
+  ddmRetrievedContext?: string | undefined;
 }
 
 export function composeSystemPrompt({
@@ -525,6 +529,7 @@ export function composeSystemPrompt({
   userInstructions,
   projectInstructions,
   mediaExecution,
+  ddmRetrievedContext,
 }: ComposeInput): string {
   // Injection resistance goes FIRST — before everything else — so no later
   // section (skill body, user instructions, project instructions, tool result)
@@ -682,6 +687,11 @@ export function composeSystemPrompt({
     parts.push(
       `\n\n## Active skill${skillName ? ` — ${skillName}` : ''}\n\nFollow this skill's workflow exactly.${preflight}\n\n${skillBody.trim()}`,
     );
+  }
+
+  // DDM: inject KB-retrieved context after SKILL.md, before plugin/meta blocks.
+  if (ddmRetrievedContext && ddmRetrievedContext.trim().length > 0) {
+    parts.push(ddmRetrievedContext);
   }
 
   if (pluginBlock && pluginBlock.trim().length > 0) {
